@@ -19,6 +19,7 @@
 
 #include "server.h"
 #include "logger.h"
+#include "threadpool.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -31,14 +32,10 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 
-#include "threadpool.h"
-
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
 
 
-extern int lockfile(int);
 extern sigset_t sig_mask;
-extern logger_t logger;
 
 
 void daemonize(void)
@@ -68,7 +65,7 @@ void daemonize(void)
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
 
-    if (sigaction(SIGHUP, &sa, NULL) < 0) {
+    if (sigaction(SIGHUP, &sa, nullptr) < 0) {
         fprintf(stderr, "sigaction: %s\n", strerror(errno));
         exit(1);
     }
@@ -88,7 +85,7 @@ void daemonize(void)
 
     /* Close all open file descriptors. */
     if (rl.rlim_max == RLIM_INFINITY) { rl.rlim_max = 1024; }
-    for (rlim_t i = 0; i < rl.rlim_max; i++) { close(i); }
+    for (rlim_t i = 0; i < rl.rlim_max; i++) { close((int)i); }
 
     /* Attach file descriptors 0, 1, and 2 to /dev/null. */
     const int fd0 = open("/dev/null", O_RDWR);
@@ -96,22 +93,20 @@ void daemonize(void)
     const int fd2 = dup(0);
 
     if (fd0 != 0 || fd1 != 1 || fd2 != 2) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - unexpected file descriptors: %d %d %d\n",
-            l_priority(L_ERROR), l_format_datetime(), fd0, fd1, fd2);
-        pthread_join(logger.thread, NULL);
+        /* Nowhere to write an error to! */
         exit(1);
     }
 }
 
 
-int already_running(char* lockfile_name)
+int already_running(char* lockfile_name, logger_t* log)
 {
     const int fd = open(lockfile_name, O_RDWR | O_CREAT, LOCK_MODE);
 
     if (fd < 0) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - can't open: %s - %s\n",
-            l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
-        pthread_join(logger.thread, NULL);
+        log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't open lockfile %s: %s\n",
+                l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
+        pthread_join(log->thread, nullptr);
         exit(1);
     }
 
@@ -120,54 +115,82 @@ int already_running(char* lockfile_name)
             close(fd);
             return 1;
         }
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - can't lock: %s - %s\n",
-            l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
-        pthread_join(logger.thread, NULL);
+        log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't lock lockfile %s: %s\n",
+                l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
+        pthread_join(log->thread, nullptr);
         exit(1);
     }
 
     ftruncate(fd, 0);
     char buf[16];
-    sprintf(buf, "%ld", (long)getpid());
+    snprintf(buf, sizeof(buf),"%ld", (long)getpid());
     write(fd, buf, strlen(buf) + 1);
-    close(fd);
     return 0;
 }
 
 
-void *thr_sig_handler(void *arg)
+void* thr_sig_handler(void *arg)
 {
-    (void)arg;
+    logger_t* log = arg;
     int sig_no;
-    for (;;) {
+    int shutdown = 0;
+
+    while (!shutdown) {
         if (sigwait(&sig_mask, &sig_no) != 0) {
-            log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - can't wait for signal: %s - %s\n",
-                l_priority(L_ERROR), l_format_datetime());
-            pthread_join(logger.thread, NULL);
+            log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't wait for signal: %s\n",
+                l_priority(L_ERROR), l_format_datetime(), strerror(errno));
+            pthread_join(log->thread, nullptr);
             exit(1);
         }
 
         switch (sig_no) {
             case SIGHUP:
-                log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - Re-reading configuration file\n",
+                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - Re-reading configuration file\n",
                     l_priority(L_INFO), l_format_datetime());
                 reread_config();
                 break;
             case SIGTERM:
-                log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - received SIGTERM, beginning shutdown\n",
+                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - received SIGTERM, beginning shutdown\n",
                     l_priority(L_INFO), l_format_datetime());
-                server_shutdown();
+                server_shutdown(log);
+                shutdown = 1;
                 break;
             default:
-                log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - unexpected signal: %d\n",
+                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - unexpected signal: %d\n",
                     l_priority(L_WARN), l_format_datetime());
         }
     }
+    return nullptr;
 }
+
 
 void reread_config()
 {
     pthread_mutex_lock(&conf_data.mutex);
     conf_data = read_config();
-    pthread_mutex_lock(&conf_data.mutex);
+    pthread_mutex_unlock(&conf_data.mutex);
+}
+
+
+int lockfile(const int fd)
+{
+    struct flock fl;
+    fl.l_type = F_WRLCK;
+    fl.l_start = 0;
+    fl.l_whence = SEEK_SET;
+    fl.l_len = 0;
+    return fcntl(fd, F_SETLK, &fl);
+}
+
+
+void server_shutdown(logger_t* log)
+{
+    log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - server shutting down\n",
+        l_priority(L_INFO), l_format_datetime());
+    /* First thing to do is stop the listener threads. */
+
+    /* Shut down worker thread pool. */
+
+    /* Shut down logging thread. */
+    logger_shutdown(log);
 }

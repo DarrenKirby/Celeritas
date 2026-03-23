@@ -26,10 +26,12 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <libgen.h>
+
+
+logger_t logger;
 
 
 char* l_priority(const int priority)
@@ -44,10 +46,12 @@ char* l_priority(const int priority)
 }
 
 
+/* Returns a string with the current time
+ * formatted as "2026-04-22 15:36:22". */
 char* l_format_datetime(void)
 {
-    char *t_buf = nullptr;
-    const time_t now = time(NULL);
+    static char t_buf[20];
+    const time_t now = time(nullptr);
     const struct tm *tm = localtime(&now);
     strftime(t_buf, sizeof(t_buf), "%Y-%m-%d %H:%M:%S", tm);
     return t_buf;
@@ -94,6 +98,7 @@ void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...
 
 void *logger_thread(void *arg)
 {
+
     logger_t   *log  = arg;
     log_ring_t *ring = &log->ring;
 
@@ -118,84 +123,85 @@ void *logger_thread(void *arg)
 
         /* Write — outside the lock, only this thread touches the fds */
         const int fd = (entry.target == LOG_TARGET_ACCESS) ? log->access_fd
-                                                      : log->error_fd;
+                                                           : log->event_fd;
         write(fd, entry.line, entry.len);
     }
-
     return NULL;
 }
 
 
-logger_t logger_init(void)
+static void early_fatal(const char *msg)
 {
-    /* Initialize logger_t. */
-    logger_t log;
+    int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
+                  O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        write(fd, msg, strlen(msg));
+        write(fd, "\n", 1);
+        close(fd);
+    }
+    exit(1);
+}
 
-    /* We still have our stdin, stdout, and stderr descriptors at this point */
 
+void logger_init(void)
+{
     /* Ensure path to logs exists. */
-    if (access(dirname(conf_data.access_log), F_OK) != 0) {
+    char *access_dir = strdup(conf_data.access_log);
+    if (access(dirname(access_dir), F_OK) != 0) {
+        free(access_dir);
+        access_dir = strdup(conf_data.access_log);
         if (mkdir(dirname(conf_data.access_log), 0755) != 0) {
-            fprintf(stderr, "Error creating directory: %s\n", strerror(errno));
-            EXIT_FAILURE;
+            early_fatal("mkdir failed\n");
         }
     }
-    if (access(dirname(conf_data.event_log), F_OK) != 0) {
+    free(access_dir);
+    char *event_dir = strdup(conf_data.event_log);
+    if (access(dirname(event_dir), F_OK) != 0) {
+        free(event_dir);
+        event_dir = strdup(conf_data.event_log);
         if (mkdir(dirname(conf_data.event_log), 0755) != 0) {
-            fprintf(stderr, "Error creating directory: %s\n", strerror(errno));
-            EXIT_FAILURE;
+            early_fatal("mkdir failed\n");
         }
     }
+    free(event_dir);
 
-    /* Open access log. */
-    log.access_fd = open(conf_data.access_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (log.access_fd < 0) {
-        fprintf(stderr, "Opening access log for writing failed: %s\n", strerror(errno));
-        EXIT_FAILURE;
+    /* Assign the log descriptors. */
+    logger.access_fd = open(conf_data.access_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (logger.access_fd < 0) {
+        early_fatal("opening access_log failed\n");
     }
 
-    /* Open error log. */
-    log.error_fd  = open(conf_data.event_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (log.error_fd < 0) {
-        fprintf(stderr, "Opening error log for writing failed: %s\n", strerror(errno));
-        EXIT_FAILURE;
+    logger.event_fd = open(conf_data.event_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (logger.event_fd < 0) {
+        early_fatal("opening event_log failed\n");
     }
 
-    /* Set shutdown flag. */
-    log.shutdown = 0;
+    logger.shutdown = 0;
 
-    /* Initialize log ring buffer. */
-    log_ring_t buffer;
-    buffer.head = 0;
-    buffer.tail = 0;
-    buffer.count = 0;
-    pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-    buffer.mutex = mtx;
-    log.ring = buffer;
+    logger.ring.head  = 0;
+    logger.ring.tail  = 0;
+    logger.ring.count = 0;
+    pthread_mutex_init(&logger.ring.mutex, nullptr);
+    pthread_cond_init(&logger.ring.not_empty, nullptr);
+    pthread_cond_init(&logger.ring.not_full, nullptr);
 
-    /* Initialize logger thread. */
-    pthread_t thread;
-    if (pthread_create(&thread, NULL, logger_thread, NULL) != 0) {
-        fprintf(stderr, "Error creating thread: %s\n", strerror(errno));
-        EXIT_FAILURE;
+    if (pthread_create(&logger.thread, nullptr, logger_thread, &logger) != 0) {
+        early_fatal("creating logger thread failed\n");
     }
-
-    log.thread = thread;
-    return log;
 }
 
 
 void logger_shutdown(logger_t *log)
 {
-    /* Signal the logger thread to wake up and exit */
+    /* Signal the logger thread to wake up and exit. */
     pthread_mutex_lock(&log->ring.mutex);
     log->shutdown = 1;
     pthread_cond_signal(&log->ring.not_empty);
     pthread_mutex_unlock(&log->ring.mutex);
 
-    /* Wait for it to finish draining the ring and exit */
-    pthread_join(log->thread, NULL);
+    /* Wait for it to finish draining the ring and exit. */
+    pthread_join(log->thread, nullptr);
 
     close(log->access_fd);
-    close(log->error_fd);
+    close(log->event_fd);
 }

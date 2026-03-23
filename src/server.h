@@ -21,11 +21,14 @@
 #ifndef CELERITAS_SERVER_H
 #define CELERITAS_SERVER_H
 
+#include "logger.h"
+
 
 void daemonize(void);
-int already_running(char* lockfile_name);
+int already_running(char* lockfile_name, logger_t* log);
 void reread_config(void);
-void server_shutdown(void);
+void server_shutdown(logger_t* log);
 void *thr_sig_handler(void *arg);
+int lockfile(int fd);
 
 #endif //CELERITAS_SERVER_H

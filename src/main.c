@@ -30,8 +30,9 @@
 #include <openssl/crypto.h>
 
 
-logger_t logger;
+config_data conf_data;
 sigset_t sig_mask;
+extern logger_t logger;
 
 
 int main(const int argc, char** argv)
@@ -48,12 +49,6 @@ int main(const int argc, char** argv)
      * TODO: override conf file settings with CLI args, if provided. */
     conf_data = read_config();
 
-    /* Initialize logging thread. */
-    logger = logger_init();
-
-    log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server started\n",
-        l_priority(L_INFO), l_format_datetime());
-
     /* Get server name. */
     char *cmd;
     if ((cmd = strrchr(argv[0], '/')) == NULL) cmd = argv[0];
@@ -63,12 +58,18 @@ int main(const int argc, char** argv)
      * must use logger to signal errors. */
     daemonize();
 
+    /* Initialize logging thread. */
+    logger_init();
+
+    log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server started\n",
+        l_priority(L_INFO), l_format_datetime());
+
     /* Write a lockfile; Make sure only one copy of the daemon is running. */
     char lockfile[PATH_MAX];
-    snprintf(lockfile, PATH_MAX, "/var/run/%s.pid", cmd);
+    snprintf(lockfile, PATH_MAX, "/Users/darrenkirby/code/celeritas/run/%s.pid", cmd);
 
-    if (already_running(lockfile)) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server already running\n",
+    if (already_running(lockfile, &logger)) {
+        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server already running!\n",
             l_priority(L_ERROR), l_format_datetime());
         pthread_join(logger.thread, nullptr);
         exit(1);
@@ -96,17 +97,23 @@ int main(const int argc, char** argv)
 
     /* Create a thread to handle SIGHUP and SIGTERM. */
     pthread_t tid;
-    if (pthread_create(&tid, nullptr, thr_sig_handler, nullptr) != 0) {
+    if (pthread_create(&tid, nullptr, thr_sig_handler, &logger) != 0) {
         log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - pthread_create failed\n",
             l_priority(L_ERROR), l_format_datetime());
         pthread_join(logger.thread, nullptr);
         exit(1);
     }
 
-
+    /* Initialize worker thread pool. */
 
     /* Start listener threads. */
     //pthread_t thr_http, thr_https;
 
-    return 0;
+    /* Block here until thr_sig_handler returns. */
+    pthread_join(tid, nullptr);
+    /* Delete the lockfile. */
+
+    unlink(lockfile);
+    printf("falling off main....");
+    return 99;
 }

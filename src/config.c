@@ -26,8 +26,8 @@ config_data read_config(void)
     cd.conn_queue_size = 8;
     cd.http_port = 80;
     cd.https_port = 443;
-    cd.access_log = "/var/log/httpd/access_log";
-    cd.event_log = "/var/log/httpd/event_log";
+    cd.access_log = "/Users/darrenkirby/code/celeritas/logs/access_log";
+    cd.event_log = "/Users/darrenkirby/code/celeritas/logs/event_log";
     const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     cd.mutex = mtx;
     return cd;

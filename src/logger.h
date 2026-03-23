@@ -21,6 +21,8 @@
 #ifndef CELERITAS_LOGGER_H
 #define CELERITAS_LOGGER_H
 
+#include <pthread.h>
+
 #define LOG_LINE_MAX  2048
 #define LOG_RING_SIZE 1024   /* must be power of 2 for cheap modulo */
 
@@ -60,14 +62,14 @@ typedef struct Log_Ring_T {
 
 typedef struct Logger_T {
     int        access_fd; /* access log file descriptor. */
-    int        error_fd;  /* error log file descriptor. */
+    int        event_fd;  /* error log file descriptor. */
     log_ring_t ring;      /* The log entry ring buffer. */
     pthread_t  thread;    /* The singleton logger thread ID. */
     int        shutdown;  /* set to 1 by main thread to signal exit */
 } logger_t;
 
 
-logger_t logger_init(void);
+void logger_init(void);
 void logger_shutdown(logger_t *log);
 void log_write(log_ring_t *ring, log_target_t target, const char *fmt, ...);
 char* l_priority(int priority);

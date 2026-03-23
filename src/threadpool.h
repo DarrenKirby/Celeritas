@@ -29,7 +29,7 @@
 extern config_data conf_data;
 
 
-typedef struct {
+typedef struct Conn_Queue_t {
     conn_t** queue;
     int capacity;
     int head;
@@ -38,8 +38,8 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t not_full;
     pthread_cond_t not_empty;
-} Conn_Queue_t;
+} conn_queue_t;
 
-Conn_Queue_t* initialize_connection_queue(void);
+conn_queue_t* initialize_connection_queue(void);
 
 #endif //CELERITAS_THREADPOOL_H

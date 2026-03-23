@@ -22,10 +22,12 @@
 #include <stdlib.h>
 
 
-Conn_Queue_t* initialize_connection_queue(void)
+conn_queue_t* initialize_connection_queue(void)
 {
-    Conn_Queue_t* cq = malloc(sizeof(Conn_Queue_t));
+    conn_queue_t* cq = malloc(sizeof(conn_queue_t));
     cq->capacity = conf_data.conn_queue_size;
     pthread_mutex_init(&cq->mutex, nullptr);
+    pthread_cond_init(&cq->not_empty, nullptr);
+    pthread_cond_init(&cq->not_full, nullptr);
    return cq;
 }
