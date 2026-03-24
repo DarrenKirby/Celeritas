@@ -69,11 +69,16 @@ typedef struct Logger_T {
 } logger_t;
 
 
+void l_debug(logger_t* log, char* s);
+void l_info(logger_t* log, char* s);
+void l_warn(logger_t* log, char* s);
+void l_error(logger_t* log, char* s);
 void logger_init(void);
 void logger_shutdown(logger_t *log);
-void log_write(log_ring_t *ring, log_target_t target, const char *fmt, ...);
-char* l_priority(int priority);
 char* l_format_datetime(void);
+char* l_priority(int priority);
+void *get_tid(void);
+void log_write(log_ring_t *ring, log_target_t target, const char *fmt, ...);
 
 
 #endif //CELERITAS_LOGGER_H

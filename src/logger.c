@@ -37,25 +37,61 @@ logger_t logger;
 char* l_priority(const int priority)
 {
     switch (priority) {
-        case L_DEBUG: return "[debug] ";
-        case L_INFO:  return "[info] ";
-        case L_WARN:  return "[warn] ";
-        case L_ERROR: return "[error] ";
+        case L_DEBUG: return "[debug]";
+        case L_INFO:  return "[info]";
+        case L_WARN:  return "[warn]";
+        case L_ERROR: return "[error]";
         default: return "";
     }
 }
 
 
 /* Returns a string with the current time
- * formatted as "2026-04-22 15:36:22". */
+ * formatted as "2026-04-22 15:36:22 PDT". */
 char* l_format_datetime(void)
 {
-    static char t_buf[20];
+    static char t_buf[24];
     const time_t now = time(nullptr);
     const struct tm *tm = localtime(&now);
-    strftime(t_buf, sizeof(t_buf), "%Y-%m-%d %H:%M:%S", tm);
+    strftime(t_buf, sizeof(t_buf), "%Y-%m-%d %H:%M:%S %Z", tm);
     return t_buf;
 }
+
+
+void *get_tid(void)
+{
+    void* tid = pthread_self();
+    return tid;
+}
+
+
+void l_debug(logger_t* log, char* s)
+{
+    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
+        l_priority(L_DEBUG), l_format_datetime(), conf_data.server_pid, get_tid(), s);
+}
+
+
+void l_info(logger_t* log, char* s)
+{
+    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
+        l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), s);
+}
+
+
+void l_warn(logger_t* log, char* s)
+{
+    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
+        l_priority(L_WARN), l_format_datetime(), conf_data.server_pid, get_tid(), s);
+}
+
+
+void l_error(logger_t* log, char* s)
+{
+    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
+        l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), s);
+}
+
 
 
 void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...)
