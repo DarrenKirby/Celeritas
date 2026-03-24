@@ -19,16 +19,35 @@
 
 #include "config.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+
+
+long get_ncpu(void) {
+    long n_cpu;
+    if ((n_cpu = sysconf(_SC_NPROCESSORS_CONF)) == -1) {
+        fprintf(stderr, "sysconf failed: %s\n", strerror(errno));
+        return 4;
+    }
+    return n_cpu;
+}
 
 config_data read_config(void)
 {
+    long ncpu = get_ncpu();
     config_data cd;
-    cd.conn_queue_size = 8;
-    cd.http_port = 80;
-    cd.https_port = 443;
+    cd.http_port = 8080;  /* Whilst testing. */
+    cd.https_port = 8443; /* Whilst testing. */
+    cd.min_threads = ncpu;
+    cd.max_threads = ncpu * 2;
+    cd.queue_depth = 256;
     cd.access_log = "/Users/darrenkirby/code/celeritas/logs/access_log";
     cd.event_log = "/Users/darrenkirby/code/celeritas/logs/event_log";
     const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     cd.mutex = mtx;
+    cd.lock_file = nullptr;
+    cd.server_pid = -1; /* This will be updated by getpid() call after daemonizing. */
     return cd;
 }
