@@ -31,8 +31,8 @@
 
 
 config_data conf_data;
-sigset_t sig_mask;
 extern logger_t logger;
+_Atomic int shutting_down = 0;
 
 
 int main(const int argc, char** argv)
@@ -58,62 +58,50 @@ int main(const int argc, char** argv)
      * must use logger to signal errors. */
     daemonize();
 
+    /* Need this to run before creating threads. */
+    signal(SIGPIPE, SIG_IGN);
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGHUP);
+    sigaddset(&set, SIGTERM);
+
+    pthread_sigmask(SIG_BLOCK, &set, nullptr);
+
     /* Initialize logging thread. */
     logger_init();
 
-    log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server started\n",
-        l_priority(L_INFO), l_format_datetime());
+    /* Grab the server pid. */
+    conf_data.server_pid = getpid();
+
+    l_info(&logger, "server started");
 
     /* Write a lockfile; Make sure only one copy of the daemon is running. */
     char lockfile[PATH_MAX];
     snprintf(lockfile, PATH_MAX, "/Users/darrenkirby/code/celeritas/run/%s.pid", cmd);
 
     if (already_running(lockfile, &logger)) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - server already running!\n",
-            l_priority(L_ERROR), l_format_datetime());
-        pthread_join(logger.thread, nullptr);
-        exit(1);
+        l_error(&logger, "server already running");
+        server_shutdown(&logger, 1);
     }
 
-    /* Restore SIGHUP default and block all signals. */
-    struct sigaction    sa;
-    sa.sa_handler = SIG_DFL;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    if (sigaction(SIGHUP, &sa, nullptr) < 0) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - sigaction failed\n",
-            l_priority(L_ERROR), l_format_datetime());
-        pthread_join(logger.thread, nullptr);
-        exit(1);
-    }
+    /* Write the lockfile name to the conf struct. */
+    conf_data.lock_file = strdup(lockfile);
 
-    sigfillset(&sig_mask);
-    if (pthread_sigmask(SIG_BLOCK, &sig_mask, nullptr) != 0) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - pthread_sigmask failed\n",
-            l_priority(L_ERROR), l_format_datetime());
-        pthread_join(logger.thread, nullptr);
-        exit(1);
-    }
+    static sig_handler_t sht;
+    sht.logger = &logger;
+    sht.sig_mask = &set;
 
     /* Create a thread to handle SIGHUP and SIGTERM. */
+    l_debug(&logger, "creating signal handler thread");
     pthread_t tid;
-    if (pthread_create(&tid, nullptr, thr_sig_handler, &logger) != 0) {
-        log_write(&logger.ring, LOG_TARGET_EVENT, "%s %s - pthread_create failed\n",
-            l_priority(L_ERROR), l_format_datetime());
-        pthread_join(logger.thread, nullptr);
-        exit(1);
+    if (pthread_create(&tid, nullptr, thr_sig_handler, &sht) != 0) {
+        l_error(&logger, "pthread_create failed");
+        server_shutdown(&logger, 1);
     }
 
     /* Initialize worker thread pool. */
+    l_debug(&logger, "initializing worker thread pool");
+    worker_init(&logger);
 
-    /* Start listener threads. */
-    //pthread_t thr_http, thr_https;
-
-    /* Block here until thr_sig_handler returns. */
-    pthread_join(tid, nullptr);
-    /* Delete the lockfile. */
-
-    unlink(lockfile);
-    printf("falling off main....");
-    return 99;
+    pthread_exit(NULL);
 }
