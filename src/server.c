@@ -35,7 +35,8 @@
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
 
 
-extern sigset_t sig_mask;
+extern server_t server;
+extern _Atomic int shutting_down;
 
 
 void daemonize(void)
@@ -58,17 +59,6 @@ void daemonize(void)
     }
     if (pid != 0) { exit(0); } /* Terminate parent. */
     setsid();
-
-    /* Ensure future opens won’t allocate controlling TTYs. */
-    struct sigaction sa;
-    sa.sa_handler = SIG_IGN;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    if (sigaction(SIGHUP, &sa, nullptr) < 0) {
-        fprintf(stderr, "sigaction: %s\n", strerror(errno));
-        exit(1);
-    }
 
     if ((pid = fork()) < 0) {
         fprintf(stderr, "fork: %s\n", strerror(errno));
@@ -106,8 +96,7 @@ int already_running(char* lockfile_name, logger_t* log)
     if (fd < 0) {
         log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't open lockfile %s: %s\n",
                 l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
-        pthread_join(log->thread, nullptr);
-        exit(1);
+        server_shutdown(log, 1);
     }
 
     if (lockfile(fd) < 0) {
@@ -117,8 +106,7 @@ int already_running(char* lockfile_name, logger_t* log)
         }
         log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't lock lockfile %s: %s\n",
                 l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
-        pthread_join(log->thread, nullptr);
-        exit(1);
+        server_shutdown(log, 1);
     }
 
     ftruncate(fd, 0);
@@ -131,29 +119,30 @@ int already_running(char* lockfile_name, logger_t* log)
 
 void* thr_sig_handler(void *arg)
 {
-    logger_t* log = arg;
+    sig_handler_t* sig_handler = arg;
+    logger_t* log = sig_handler->logger;
+    sigset_t* sig_mask = sig_handler->sig_mask;
+
     int sig_no;
     int shutdown = 0;
 
     while (!shutdown) {
-        if (sigwait(&sig_mask, &sig_no) != 0) {
+        const int ret = sigwait(sig_mask, &sig_no);
+        if (ret != 0) {
             log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't wait for signal: %s\n",
-                l_priority(L_ERROR), l_format_datetime(), strerror(errno));
-            pthread_join(log->thread, nullptr);
-            exit(1);
+                l_priority(L_ERROR), l_format_datetime(), strerror(ret));
+            server_shutdown(log, 1);
         }
 
         switch (sig_no) {
             case SIGHUP:
-                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - Re-reading configuration file\n",
-                    l_priority(L_INFO), l_format_datetime());
-                reread_config();
+                l_info(log, "received SIGHUP");
+                reread_config(log);
                 break;
             case SIGTERM:
-                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - received SIGTERM, beginning shutdown\n",
-                    l_priority(L_INFO), l_format_datetime());
-                server_shutdown(log);
+                l_info(log, "received SIGTERM");
                 shutdown = 1;
+                server_shutdown(log, 0);
                 break;
             default:
                 log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - unexpected signal: %d\n",
@@ -164,8 +153,10 @@ void* thr_sig_handler(void *arg)
 }
 
 
-void reread_config()
+void reread_config(logger_t* log)
 {
+    l_info(log, "Re-reading configuration file");
+
     pthread_mutex_lock(&conf_data.mutex);
     conf_data = read_config();
     pthread_mutex_unlock(&conf_data.mutex);
@@ -183,14 +174,34 @@ int lockfile(const int fd)
 }
 
 
-void server_shutdown(logger_t* log)
+void server_shutdown(logger_t* log, const int status)
 {
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - server shutting down\n",
-        l_priority(L_INFO), l_format_datetime());
+    l_info(log, "server shutdown starting");
+
+    shutting_down = 1;
+
     /* First thing to do is stop the listener threads. */
+    close(server.http_fd);
+    close(server.https_fd);
+    pthread_join(server.http_listener, nullptr);
+    pthread_join(server.https_listener, nullptr);
+
+    /* Wake all workers. */
+    pthread_mutex_lock(&server.queue->mutex);
+    server.queue->shutting_down = 1;
+    pthread_cond_broadcast(&server.queue->not_empty);
+    pthread_mutex_unlock(&server.queue->mutex);
 
     /* Shut down worker thread pool. */
+    for (int i = 0; i < server.n_workers; i++) {
+        pthread_join(server.workers[i], nullptr);
+    }
+
+    l_info(log, "server shutdown complete");
 
     /* Shut down logging thread. */
     logger_shutdown(log);
+    /* Remove the runtime lockfile. */
+    unlink(conf_data.lock_file);
+    exit(status);
 }

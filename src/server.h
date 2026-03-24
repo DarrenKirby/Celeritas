@@ -22,12 +22,19 @@
 #define CELERITAS_SERVER_H
 
 #include "logger.h"
+#include "threadpool.h"
+
+
+typedef struct {
+    logger_t *logger;
+    sigset_t *sig_mask;
+} sig_handler_t;
 
 
 void daemonize(void);
 int already_running(char* lockfile_name, logger_t* log);
-void reread_config(void);
-void server_shutdown(logger_t* log);
+void reread_config(logger_t* log);
+void server_shutdown(logger_t* log, int status);
 void *thr_sig_handler(void *arg);
 int lockfile(int fd);
 
