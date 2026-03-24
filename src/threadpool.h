@@ -23,23 +23,63 @@
 
 #include "config.h"
 #include "socket.h"
+#include "logger.h"
 
 #include <pthread.h>
+
 
 extern config_data conf_data;
 
 
-typedef struct Conn_Queue_t {
-    conn_t** queue;
+/* The work queue. */
+typedef struct {
+    conn_t *buf;
     int capacity;
-    int head;
-    int tail;
-    int count;
-    pthread_mutex_t mutex;
-    pthread_cond_t not_full;
-    pthread_cond_t not_empty;
-} conn_queue_t;
 
-conn_queue_t* initialize_connection_queue(void);
+    int head;   /* Next item to pop */
+    int tail;   /* Next slot to push. */
+    int count;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t not_empty;
+    pthread_cond_t not_full;
+
+    int shutting_down;
+} work_queue_t;
+
+
+/* Argument struct for worker_thread. */
+typedef struct {
+    work_queue_t *queue;
+    logger_t *logger;
+} worker_args_t;
+
+
+/* Argument struct for listener_thread. */
+typedef struct {
+    work_queue_t *queue;
+    uint16_t port;
+    logger_t *logger;
+    uint8_t is_tls;
+} listener_args_t;
+
+
+/* This struct holds our worker threads and socket descriptors
+ * so we can access them later for a clean shutdown. */
+typedef struct {
+    pthread_t *workers;
+    int n_workers;
+
+    pthread_t http_listener;
+    pthread_t https_listener;
+
+    int http_fd;
+    int https_fd;
+
+    work_queue_t *queue;
+} server_t;
+
+
+void worker_init(logger_t* log);
 
 #endif //CELERITAS_THREADPOOL_H
