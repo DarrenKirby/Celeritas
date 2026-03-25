@@ -119,14 +119,13 @@ int already_running(char* lockfile_name, logger_t* log)
 
 void* thr_sig_handler(void *arg)
 {
-    sig_handler_t* sig_handler = arg;
+    const sig_handler_t* sig_handler = arg;
     logger_t* log = sig_handler->logger;
-    sigset_t* sig_mask = sig_handler->sig_mask;
+    const sigset_t* sig_mask = sig_handler->sig_mask;
 
     int sig_no;
-    int shutdown = 0;
 
-    while (!shutdown) {
+    while (1) {
         const int ret = sigwait(sig_mask, &sig_no);
         if (ret != 0) {
             log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't wait for signal: %s\n",
@@ -136,20 +135,17 @@ void* thr_sig_handler(void *arg)
 
         switch (sig_no) {
             case SIGHUP:
-                l_info(log, "received SIGHUP");
+                l_info(log, "server received SIGHUP");
                 reread_config(log);
                 break;
             case SIGTERM:
-                l_info(log, "received SIGTERM");
-                shutdown = 1;
+                l_info(log, "server received SIGTERM");
                 server_shutdown(log, 0);
-                break;
             default:
                 log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - unexpected signal: %d\n",
                     l_priority(L_WARN), l_format_datetime());
         }
     }
-    return nullptr;
 }
 
 

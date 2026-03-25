@@ -101,12 +101,12 @@ void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...
     /* --- Format entirely before taking the lock --- */
     va_list args;
     va_start(args, fmt);
-    entry.len    = vsnprintf(entry.line, LOG_LINE_MAX, fmt, args);
+    entry.len = vsnprintf(entry.line, LOG_LINE_MAX, fmt, args);
     entry.target = target;
     va_end(args);
 
     /* --- Now touch shared state --- */
-    pthread_mutex_lock(&ring->mutex);
+    THR_OK(pthread_mutex_lock(&ring->mutex));
 
     if (ring->count == LOG_RING_SIZE) {
         /*
@@ -118,7 +118,7 @@ void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...
          * For an access log under heavy traffic (a) is more appropriate
          * so worker threads never stall waiting for the logger.
          */
-        pthread_mutex_unlock(&ring->mutex);
+        THR_OK(pthread_mutex_unlock(&ring->mutex));
         return;  /* dropped — optionally increment a counter */
     }
 
@@ -127,8 +127,8 @@ void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...
     ring->tail = (ring->tail + 1) & (LOG_RING_SIZE - 1);  /* cheap % for power-of-2 */
     ring->count++;
 
-    pthread_cond_signal(&ring->not_empty);
-    pthread_mutex_unlock(&ring->mutex);
+    THR_OK(pthread_cond_signal(&ring->not_empty));
+    THR_OK(pthread_mutex_unlock(&ring->mutex));
 }
 
 
@@ -139,14 +139,14 @@ void *logger_thread(void *arg)
     log_ring_t *ring = &log->ring;
 
     while (1) {
-        pthread_mutex_lock(&ring->mutex);
+        THR_OK(pthread_mutex_lock(&ring->mutex));
 
         /* Sleep until there is something to write */
         while (ring->count == 0 && !log->shutdown)
-            pthread_cond_wait(&ring->not_empty, &ring->mutex);
+            THR_OK(pthread_cond_wait(&ring->not_empty, &ring->mutex));
 
         if (ring->count == 0 && log->shutdown) {
-            pthread_mutex_unlock(&ring->mutex);
+            THR_OK(pthread_mutex_unlock(&ring->mutex));
             break;
         }
 
@@ -155,7 +155,7 @@ void *logger_thread(void *arg)
         ring->head  = (ring->head + 1) & (LOG_RING_SIZE - 1);
         ring->count--;
 
-        pthread_mutex_unlock(&ring->mutex);
+        THR_OK(pthread_mutex_unlock(&ring->mutex));
 
         /* Write — outside the lock, only this thread touches the fds */
         const int fd = (entry.target == LOG_TARGET_ACCESS) ? log->access_fd
@@ -168,7 +168,7 @@ void *logger_thread(void *arg)
 
 static void early_fatal(const char *msg)
 {
-    int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
+    const int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
                   O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         write(fd, msg, strlen(msg));

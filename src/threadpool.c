@@ -36,10 +36,10 @@ extern _Atomic int shutting_down;
 void handle_connection(conn_t* conn, logger_t* log) {
     l_debug(log, "got a connection");
     write(conn->fd,
-      "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello",
-      44);
+      "HTTP/1.1 200 OK\r\nContent-Length: 31\r\n\r\nHello from Darren's HTTP server",
+      70);
     log_write(&log->ring, LOG_TARGET_ACCESS,
-    "%s - - [%s] \"GET / HTTP/1.1\" 200 5\n",
+    "%s - - [%s] \"GET / HTTP/1.1\" 200 31\n",
     conn->remote_ip,
     l_format_datetime());
 }
@@ -54,9 +54,9 @@ int queue_init(work_queue_t *q, const int capacity)
     q->capacity = capacity;
     q->head = q->tail = q->count = 0;
 
-    pthread_mutex_init(&q->mutex, nullptr);
-    pthread_cond_init(&q->not_empty, nullptr);
-    pthread_cond_init(&q->not_full, nullptr);
+    THR_OK(pthread_mutex_init(&q->mutex, nullptr));
+    THR_OK(pthread_cond_init(&q->not_empty, nullptr));
+    THR_OK(pthread_cond_init(&q->not_full, nullptr));
 
     q->shutting_down = 0;
     return 0;
@@ -65,31 +65,31 @@ int queue_init(work_queue_t *q, const int capacity)
 
 void queue_push(work_queue_t *q, const conn_t *c)
 {
-    pthread_mutex_lock(&q->mutex);
+    THR_OK(pthread_mutex_lock(&q->mutex));
 
     while (q->count == q->capacity) {
-        pthread_cond_wait(&q->not_full, &q->mutex);
+        THR_OK(pthread_cond_wait(&q->not_full, &q->mutex));
     }
 
     q->buf[q->tail] = *c;
     q->tail = (q->tail + 1) % q->capacity;
     q->count++;
 
-    pthread_cond_signal(&q->not_empty);
-    pthread_mutex_unlock(&q->mutex);
+    THR_OK(pthread_cond_signal(&q->not_empty));
+    THR_OK(pthread_mutex_unlock(&q->mutex));
 }
 
 
 int queue_pop(work_queue_t *q, conn_t *out)
 {
-    pthread_mutex_lock(&q->mutex);
+    THR_OK(pthread_mutex_lock(&q->mutex));
 
     while (q->count == 0 && !q->shutting_down) {
-        pthread_cond_wait(&q->not_empty, &q->mutex);
+        THR_OK(pthread_cond_wait(&q->not_empty, &q->mutex));
     }
 
     if (q->shutting_down && q->count == 0) {
-        pthread_mutex_unlock(&q->mutex);
+        THR_OK(pthread_mutex_unlock(&q->mutex));
         return -1;
     }
 
@@ -97,8 +97,8 @@ int queue_pop(work_queue_t *q, conn_t *out)
     q->head = (q->head + 1) % q->capacity;
     q->count--;
 
-    pthread_cond_signal(&q->not_full);
-    pthread_mutex_unlock(&q->mutex);
+    THR_OK(pthread_cond_signal(&q->not_full));
+    THR_OK(pthread_mutex_unlock(&q->mutex));
     return 0;
 }
 
@@ -112,9 +112,7 @@ void *worker_thread(void *arg)
 
     l_debug(log, "in worker thread");
 
-    for (;;) {
-        if (queue_pop(q, &conn) != 0) break;
-
+    while (queue_pop(q, &conn) == 0) {
         handle_connection(&conn, log);
 
         close(conn.fd);
@@ -170,9 +168,7 @@ void *listener_thread(void *arg)
         server.http_fd = listen_fd;
     }
 
-    for (;;) {
-        if (shutting_down) break;
-
+    while (!shutting_down) {
         struct sockaddr_storage addr;
         socklen_t len = sizeof(addr);
 
@@ -188,7 +184,7 @@ void *listener_thread(void *arg)
         conn.fd = fd;
         conn.is_tls = la->is_tls;
 
-        // Fill remote IP + port
+        /* Fill remote IP + port. */
         if (addr.ss_family == AF_INET) {
             struct sockaddr_in *a = (struct sockaddr_in*)&addr;
             inet_ntop(AF_INET, &a->sin_addr, conn.remote_ip, sizeof(conn.remote_ip));
@@ -218,11 +214,13 @@ void worker_init(logger_t* log)
 
     /* Initialize the work queue. */
     l_debug(log, "initializing work queue");
-    work_queue_t* queue = malloc(sizeof(*queue));
-    if (queue == NULL) {
+    work_queue_t *queue = malloc(sizeof(work_queue_t));
+    if (!queue) {
         l_error(log, "malloc failed");
         server_shutdown(log, 1);
     }
+
+    queue->buf = nullptr;
 
     if (queue_init(queue, cap) != 0) {
         l_error(log, "queue_init failed");

@@ -24,15 +24,15 @@
 #include <pthread.h>
 
 #define LOG_LINE_MAX  2048
-#define LOG_RING_SIZE 1024   /* must be power of 2 for cheap modulo */
+#define LOG_RING_SIZE 512   /* must be power of 2 for cheap modulo */
 
 
 typedef enum {
-    L_ACCESS,
     L_DEBUG,
     L_INFO,
     L_WARN,
     L_ERROR,
+    L_ACCESS
 } log_level_t;
 
 

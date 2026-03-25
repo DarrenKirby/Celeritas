@@ -28,6 +28,17 @@
 #include <pthread.h>
 
 
+#define THR_OK(func) \
+    do { \
+        int rc = (func); \
+        if (rc != 0) { \
+            FILE* fh = fopen(conf_data.event_log, "a"); \
+            fprintf(fh, "%s:%d: %s failed with error %d\n", __FILE__, __LINE__, #func, rc); \
+            abort(); \
+        } \
+    } while (0)
+
+
 extern config_data conf_data;
 
 

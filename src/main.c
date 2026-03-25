@@ -85,7 +85,7 @@ int main(const int argc, char** argv)
     }
 
     /* Write the lockfile name to the conf struct. */
-    conf_data.lock_file = strdup(lockfile);
+    strncpy(conf_data.lock_file, lockfile, PATH_MAX);
 
     static sig_handler_t sht;
     sht.logger = &logger;

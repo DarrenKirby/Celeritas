@@ -24,6 +24,8 @@
 #include "logger.h"
 #include "threadpool.h"
 
+#include <stdnoreturn.h>
+
 
 typedef struct {
     logger_t *logger;
@@ -34,7 +36,7 @@ typedef struct {
 void daemonize(void);
 int already_running(char* lockfile_name, logger_t* log);
 void reread_config(logger_t* log);
-void server_shutdown(logger_t* log, int status);
+noreturn void server_shutdown(logger_t* log, int status);
 void *thr_sig_handler(void *arg);
 int lockfile(int fd);
 
