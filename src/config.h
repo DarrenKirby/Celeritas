@@ -23,19 +23,20 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include <sys/_types/_pid_t.h>
+#include <sys/syslimits.h>
+#include <sys/types.h>
 
 typedef struct Config_Data{
-    uint16_t queue_depth;  /* Max pending connections before drop. */
-    uint16_t http_port;    /* Plain HTTP listener port. */
-    uint16_t https_port;   /* HTTPS listener port. */
-    uint16_t min_threads;  /* Minimum worker threads in pool. */
-    uint16_t max_threads;  /* Maximum worker threads in pool. */
-    char* access_log;
-    char* event_log;
-    char* lock_file;       /* The runtime lock file to stop multiple server instances. */
-    pid_t server_pid;      /* The pid of the running server. */
-    pthread_mutex_t mutex;
+    uint16_t queue_depth;      /* Max pending connections. */
+    uint16_t http_port;        /* Plain HTTP listener port. */
+    uint16_t https_port;       /* HTTPS listener port. */
+    uint16_t min_threads;      /* Minimum worker threads in pool. */
+    uint16_t max_threads;      /* Maximum worker threads in pool. */
+    char access_log[PATH_MAX]; /* Path to the access log file. */
+    char event_log[PATH_MAX];  /* Path to the event log file. */
+    char lock_file[PATH_MAX];  /* The runtime lock file to stop multiple server instances. */
+    pid_t server_pid;          /* The pid of the running server. */
+    pthread_mutex_t mutex;     /* Lock for thread synchronization. */
 } config_data;
 
 config_data read_config(void);

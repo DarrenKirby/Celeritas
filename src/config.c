@@ -36,18 +36,18 @@ long get_ncpu(void) {
 
 config_data read_config(void)
 {
-    long ncpu = get_ncpu();
+    const long ncpu = get_ncpu();
     config_data cd;
     cd.http_port = 8080;  /* Whilst testing. */
     cd.https_port = 8443; /* Whilst testing. */
     cd.min_threads = ncpu;
     cd.max_threads = ncpu * 2;
     cd.queue_depth = 256;
-    cd.access_log = "/Users/darrenkirby/code/celeritas/logs/access_log";
-    cd.event_log = "/Users/darrenkirby/code/celeritas/logs/event_log";
+    strncpy(cd.access_log, "/Users/darrenkirby/code/celeritas/logs/access_log", PATH_MAX);
+    strncpy(cd.event_log, "/Users/darrenkirby/code/celeritas/logs/event_log", PATH_MAX);
     const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     cd.mutex = mtx;
-    cd.lock_file = nullptr;
-    cd.server_pid = -1; /* This will be updated by getpid() call after daemonizing. */
+    //cd.lock_file = "";
+    cd.server_pid = -1;  /* This will be updated by getpid() call after daemonizing. */
     return cd;
 }
