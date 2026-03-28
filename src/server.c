@@ -176,10 +176,10 @@ void server_shutdown(logger_t* log, const int status)
     shutting_down = 1;
 
     /* First thing to do is stop the listener threads. */
-    close(server.http_fd);
-    close(server.https_fd);
     pthread_join(server.http_listener, nullptr);
     pthread_join(server.https_listener, nullptr);
+    close(server.http_fd);
+    close(server.https_fd);
 
     /* Wake all workers. */
     pthread_mutex_lock(&server.queue->mutex);
