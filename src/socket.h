@@ -21,16 +21,19 @@
 #ifndef CELERITAS_SOCKET_H
 #define CELERITAS_SOCKET_H
 
-#include <stdint.h>
-#include <openssl/types.h>
+
+#include "types.h"
+#include "config.h"
 
 
-typedef struct Conn_T {
-    int fd;                /* Socket file descriptor. */
-    uint8_t is_tls;        /* 0: http; 1: https */
-    char remote_ip[46];    /* IPv4 or IPv6 address string. */
-    uint16_t remote_port;  /* Client port. */
-    SSL *ssl;              /* NULL for plain connections. */
-} conn_t;
+extern _Atomic int shutting_down;
+extern config_data conf_data;
+
+
+int create_listener(uint16_t port, logger_t *log);
+int accept_connection(int listen_fd, int is_tls, conn_t* conn);
+void demux_protocol(request_ctx_t* ctx);
+void set_socket_timeout(int fd, int seconds);
+void close_connection(const conn_t* conn);
 
 #endif //CELERITAS_SOCKET_H
