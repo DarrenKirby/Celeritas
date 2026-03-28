@@ -21,7 +21,6 @@
 #ifndef CELERITAS_THREADPOOL_H
 #define CELERITAS_THREADPOOL_H
 
-#include "config.h"
 #include "socket.h"
 #include "logger.h"
 
@@ -39,7 +38,7 @@
     } while (0)
 
 
-extern config_data conf_data;
+//extern config_data conf_data;
 
 
 /* The work queue. */
