@@ -21,7 +21,6 @@
 #ifndef CELERITAS_SERVER_H
 #define CELERITAS_SERVER_H
 
-#include "logger.h"
 #include "threadpool.h"
 
 #include <stdnoreturn.h>

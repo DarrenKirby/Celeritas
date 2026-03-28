@@ -36,7 +36,6 @@
 
 
 extern server_t server;
-extern _Atomic int shutting_down;
 
 
 void daemonize(void)
