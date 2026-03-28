@@ -74,6 +74,7 @@ int main(const int argc, char** argv)
     conf_data.server_pid = getpid();
 
     l_info(&logger, "server started");
+    l_debug(&logger, "initialized logger thread");
 
     /* Write a lockfile; Make sure only one copy of the daemon is running. */
     char lockfile[PATH_MAX];
