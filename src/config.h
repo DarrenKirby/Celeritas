@@ -26,18 +26,29 @@
 #include <sys/syslimits.h>
 #include <sys/types.h>
 
-typedef struct Config_Data{
-    uint16_t queue_depth;      /* Max pending connections. */
+
+typedef struct Config_Data {
+    /* Administrative. */
     uint16_t http_port;        /* Plain HTTP listener port. */
     uint16_t https_port;       /* HTTPS listener port. */
-    uint16_t min_threads;      /* Minimum worker threads in pool. */
-    uint16_t max_threads;      /* Maximum worker threads in pool. */
-    char access_log[PATH_MAX]; /* Path to the access log file. */
-    char event_log[PATH_MAX];  /* Path to the event log file. */
-    char lock_file[PATH_MAX];  /* The runtime lock file to stop multiple server instances. */
+    char server_tok[15];       /* Server header value. */
     pid_t server_pid;          /* The pid of the running server. */
     pthread_mutex_t mutex;     /* Lock for thread synchronization. */
+    /* Security/DoS. */
+    uint16_t max_rx_header;         /* Max limit for request header size. */
+    uint16_t max_tx_header;         /* Max limit for response header size. */
+    uint16_t keepalive_timeout;     /* Number of seconds to wait for a request before closing connection. */
+    /* Performance tuning. */
+    uint16_t queue_depth;        /* Max pending connections. */
+    uint16_t min_threads;        /* Minimum worker threads in pool. */
+    uint16_t max_threads;        /* Maximum worker threads in pool. */
+    /* Filesystem locations. */
+    char access_log[PATH_MAX];   /* Path to the access log file. */
+    char event_log[PATH_MAX];    /* Path to the event log file. */
+    char lock_file[PATH_MAX];    /* The runtime lock file to stop multiple server instances. */
+    char doc_root[PATH_MAX];     /* The local directory from which to serve content. */
 } config_data;
+
 
 config_data read_config(void);
 

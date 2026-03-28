@@ -18,21 +18,11 @@
 */
 
 #include "config.h"
+#include "util.h"
 
-#include <stdio.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 
-
-long get_ncpu(void) {
-    long n_cpu;
-    if ((n_cpu = sysconf(_SC_NPROCESSORS_CONF)) == -1) {
-        fprintf(stderr, "sysconf failed: %s\n", strerror(errno));
-        return 4;
-    }
-    return n_cpu;
-}
 
 config_data read_config(void)
 {
@@ -45,9 +35,13 @@ config_data read_config(void)
     cd.queue_depth = 256;
     strncpy(cd.access_log, "/Users/darrenkirby/code/celeritas/logs/access_log", PATH_MAX);
     strncpy(cd.event_log, "/Users/darrenkirby/code/celeritas/logs/event_log", PATH_MAX);
+    strncpy(cd.doc_root, "/Users/darrenkirby/code/celeritas/www", PATH_MAX);
+    strncpy(cd.server_tok, "Celeritas/0.1", 13);
     const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     cd.mutex = mtx;
-    //cd.lock_file = "";
     cd.server_pid = -1;  /* This will be updated by getpid() call after daemonizing. */
+    cd.max_rx_header = 8192;
+    cd.max_tx_header = 8192;
+    cd.keepalive_timeout = 10;
     return cd;
 }
