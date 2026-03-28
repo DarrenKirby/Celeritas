@@ -23,7 +23,7 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include <sys/syslimits.h>
+#include <limits.h>
 #include <sys/types.h>
 
 
