@@ -21,5 +21,22 @@
 #ifndef CELERITAS_UTIL_H
 #define CELERITAS_UTIL_H
 
+#include <stdint.h>
+#include <stdio.h>
+#include <time.h>
+
+
+typedef struct request_ctx_t request_ctx_t;
+
+
+long get_ncpu(void);
+uint64_t get_now_ms(void);
+uint64_t get_now_us(void);
+const char* int_to_string(int i);
+void get_http_date_now(char *buf, size_t len);
+void get_http_date_time_t(char *buf, size_t len, time_t the_time);
+
+void debug_print_request(request_ctx_t* ctx);
+void debug_print_response(request_ctx_t* ctx);
 
 #endif //CELERITAS_UTIL_H
