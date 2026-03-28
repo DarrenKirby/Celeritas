@@ -1,3 +1,7 @@
+# Celeritas testing
+logs/
+www/
+
 # Objects
 *.o
 
