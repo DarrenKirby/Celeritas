@@ -53,7 +53,7 @@ char* l_format_datetime(void)
     static char t_buf[24];
     const time_t now = time(nullptr);
     const struct tm *tm = localtime(&now);
-    strftime(t_buf, sizeof(t_buf), "%Y-%m-%d %H:%M:%S %Z", tm);
+    strftime(t_buf, sizeof(t_buf), "%F %T %Z", tm);
     return t_buf;
 }
 
@@ -93,19 +93,26 @@ void l_error(logger_t* log, char* s)
 }
 
 
+void log_access(request_ctx_t* ctx, uint64_t latency)
+{
+    log_write(&ctx->log->ring, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d latency: %lld\n",
+    ctx->conn->remote_ip, l_format_datetime(), ctx->request.h1.method, ctx->request.h1.uri, ctx->request.h1.version,
+    ctx->status_code, ctx->response.body_len, latency);
+}
+
 
 void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...)
 {
     log_entry_t entry;
 
-    /* --- Format entirely before taking the lock --- */
+    /* Format entirely before taking the lock */
     va_list args;
     va_start(args, fmt);
     entry.len = vsnprintf(entry.line, LOG_LINE_MAX, fmt, args);
     entry.target = target;
     va_end(args);
 
-    /* --- Now touch shared state --- */
+    /* Now touch shared state */
     THR_OK(pthread_mutex_lock(&ring->mutex));
 
     if (ring->count == LOG_RING_SIZE) {
@@ -113,18 +120,14 @@ void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...
          * Ring is full. Two options:
          *   a) Drop the entry (common for access logs under load)
          *   b) Block until space is available
-         *
-         * For an error log you might prefer (b) so nothing is lost.
-         * For an access log under heavy traffic (a) is more appropriate
-         * so worker threads never stall waiting for the logger.
          */
         THR_OK(pthread_mutex_unlock(&ring->mutex));
-        return;  /* dropped — optionally increment a counter */
+        return;  /* Dropped.  */
     }
 
     entry.target = target;
     ring->entries[ring->tail] = entry;
-    ring->tail = (ring->tail + 1) & (LOG_RING_SIZE - 1);  /* cheap % for power-of-2 */
+    ring->tail = (ring->tail + 1) & (LOG_RING_SIZE - 1);  /* Cheap % for power-of-2. */
     ring->count++;
 
     THR_OK(pthread_cond_signal(&ring->not_empty));

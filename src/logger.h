@@ -21,52 +21,7 @@
 #ifndef CELERITAS_LOGGER_H
 #define CELERITAS_LOGGER_H
 
-#include <pthread.h>
-
-#define LOG_LINE_MAX  2048
-#define LOG_RING_SIZE 512   /* must be power of 2 for cheap modulo */
-
-
-typedef enum {
-    L_DEBUG,
-    L_INFO,
-    L_WARN,
-    L_ERROR,
-    L_ACCESS
-} log_level_t;
-
-
-typedef enum {
-    LOG_TARGET_ACCESS,
-    LOG_TARGET_EVENT
-} log_target_t;
-
-
-typedef struct Log_Entry_T {
-    log_target_t target;
-    int          len;
-    char         line[LOG_LINE_MAX];
-} log_entry_t;
-
-
-typedef struct Log_Ring_T {
-    log_entry_t     entries[LOG_RING_SIZE];
-    int             head;       /* logger thread reads from here  */
-    int             tail;       /* producers write to here        */
-    int             count;      /* current number of entries      */
-    pthread_mutex_t mutex;
-    pthread_cond_t  not_empty;  /* logger sleeps on this          */
-    pthread_cond_t  not_full;   /* producers sleep on this if full */
-} log_ring_t;
-
-
-typedef struct Logger_T {
-    int        access_fd; /* access log file descriptor. */
-    int        event_fd;  /* error log file descriptor. */
-    log_ring_t ring;      /* The log entry ring buffer. */
-    pthread_t  thread;    /* The singleton logger thread ID. */
-    int        shutdown;  /* set to 1 by main thread to signal exit */
-} logger_t;
+#include "types.h"
 
 
 void l_debug(logger_t* log, char* s);
@@ -79,6 +34,7 @@ char* l_format_datetime(void);
 char* l_priority(int priority);
 void *get_tid(void);
 void log_write(log_ring_t *ring, log_target_t target, const char *fmt, ...);
+void log_access(request_ctx_t* ctx, uint64_t latency);
 
 
 #endif //CELERITAS_LOGGER_H
