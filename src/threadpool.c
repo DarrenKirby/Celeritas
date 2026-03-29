@@ -170,6 +170,11 @@ void *listener_thread(void *arg)
     /* Next step... */
     const int listen_fd = create_listener(la->port, log);
 
+    if (listen_fd < 0) {
+        l_error(log, "listener creation failed, thread exiting");
+        return NULL;   // 💥 THIS IS CRITICAL
+    }
+
     if (la->is_tls) {
         server.https_fd = listen_fd;
     } else {
@@ -190,6 +195,7 @@ void *listener_thread(void *arg)
         /* Log accept() failure. */
         if (rv != 0) {
             l_warn(log, "accept() failed: %s", strerror(rv));
+            usleep(10000); // 10ms — prevents CPU spin
             continue;
         }
 
