@@ -70,19 +70,18 @@ char* l_format_datetime(void)
 }
 
 
-void *get_tid(void)
+unsigned long get_tid(void)
 {
-    void* tid = pthread_self();
-    return tid;
+    return (unsigned long)pthread_self();
 }
 
 
 void log_access(request_ctx_t* ctx, const uint64_t latency)
 {
-    log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluus] - %s\n",
+    log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluus] - %s - tid: 0x%lx\n",
     ctx->conn->remote_ip, l_format_datetime(), ctx->request.h1.method, ctx->request.h1.uri, ctx->request.h1.version,
     ctx->status_code, ctx->response.body_len, (unsigned long long)latency,
-    confirm_header_exists(ctx, "User-Agent") ? get_header_value(ctx, "User-Agent") : "");
+    confirm_header_exists(ctx, "User-Agent") ? get_header_value(ctx, "User-Agent") : "", get_tid());
 }
 
 
@@ -185,8 +184,14 @@ void *logger_thread(void *arg)
         }
 
         /* Fire them off in a burst. */
-        if (access_count > 0) writev(log->access_fd, iov_access, access_count);
-        if (event_count > 0)  writev(log->event_fd, iov_event, event_count);
+        if (access_count > 0) {
+            const ssize_t rv = writev(log->access_fd, iov_access, access_count);
+            if (rv < 0) continue;
+        }
+        if (event_count > 0) {
+            const ssize_t rv = writev(log->event_fd, iov_event, event_count);
+            if (rv < 0) continue;
+        }
     }
     return NULL;
 }
@@ -197,8 +202,10 @@ static void early_fatal(const char *msg)
     const int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
                   O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
-        write(fd, msg, strlen(msg));
-        write(fd, "\n", 1);
+        ssize_t rv = write(fd, msg, strlen(msg));
+        if (rv < 0) exit(1);
+        rv = write(fd, "\n", 1);
+        if (rv < 0) exit(1);
         close(fd);
     }
     exit(1);

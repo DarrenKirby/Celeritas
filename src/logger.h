@@ -34,25 +34,25 @@ extern config_data conf_data;
 
 #define l_debug(log, fmt, ...) \
     log_write(log, LOG_TARGET_EVENT, \
-        "%s - %s - pid %d - tid %p - " fmt "\n", \
+        "%s - %s - pid %d - tid 0x%lx - " fmt "\n", \
          l_priority(L_DEBUG), l_format_datetime(), conf_data.server_pid, get_tid(), \
          ##__VA_ARGS__)
 
 #define l_info(log, fmt, ...) \
     log_write(log, LOG_TARGET_EVENT, \
-        "%s - %s - pid %d - tid %p - " fmt "\n", \
+        "%s - %s - pid %d - tid 0x%lx - " fmt "\n", \
         l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), \
         ##__VA_ARGS__)
 
 #define l_warn(log, fmt, ...) \
     log_write(log, LOG_TARGET_EVENT, \
-        "%s - %s - pid %d - tid %p - " fmt "\n", \
+        "%s - %s - pid %d - tid 0x%lx - " fmt "\n", \
         l_priority(L_WARN), l_format_datetime(), conf_data.server_pid, get_tid(), \
         ##__VA_ARGS__)
 
 #define l_error(log, fmt, ...) \
     log_write(log, LOG_TARGET_EVENT, \
-         "%s - %s - pid %d - tid %p - " fmt "\n", \
+         "%s - %s - pid %d - tid 0x%lx - " fmt "\n", \
          l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), \
          ##__VA_ARGS__)
 
@@ -61,7 +61,7 @@ void logger_init(void);
 void logger_shutdown(logger_t *log);
 char* l_format_datetime(void);
 char* l_priority(int priority);
-void *get_tid(void);
+unsigned long get_tid(void);
 void log_write(logger_t* log, log_target_t target, const char *fmt, ...);
 void log_access(request_ctx_t* ctx, uint64_t latency);
 
