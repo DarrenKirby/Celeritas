@@ -28,6 +28,7 @@ typedef struct request_ctx_t request_ctx_t;
 
 void resp_set_status(request_ctx_t* ctx, int status);
 void resp_add_header(request_ctx_t* ctx, const char* name, const char* value);
+void resp_add_common_headers(request_ctx_t* ctx);
 size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining);
 int resp_map_file_to_ctx(request_ctx_t *ctx, const char *filepath);
 

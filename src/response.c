@@ -19,11 +19,16 @@
 
 #include "types.h"
 #include "http_common.h"
+#include "util.h"
+#include "config.h"
 
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+
+
+extern config_data conf_data;
 
 
 void resp_set_status(request_ctx_t* ctx, const int status)
@@ -40,6 +45,15 @@ void resp_add_header(request_ctx_t* ctx, const char* name, const char* value)
     strncpy(k, name, 128);
     strncpy(v, value, 4096);
     ctx->response.header_count++;
+}
+
+
+void resp_add_common_headers(request_ctx_t* ctx)
+{
+    char now[30];
+    get_http_date_now(now, 30);
+    resp_add_header(ctx, "Server", conf_data.server_tok);
+    resp_add_header(ctx, "Date", now);
 }
 
 
