@@ -43,8 +43,9 @@ int create_listener(uint16_t port, logger_t *log)
 
     const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr));
     if (ret != 0) {
-        log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - bind failed: %s\n",
-                l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), strerror(errno));
+        l_error(log, "bind() failed: %s", strerror(errno));
+        // log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - bind failed: %s\n",
+        //         l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), strerror(errno));
         close(fd);
         return -1;
     }
@@ -88,27 +89,27 @@ int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {
 }
 
 
-void demux_protocol(request_ctx_t* ctx)
+void demux_protocol(conn_t* conn)
 {
     char peek_buf[24];
-    const ssize_t n = recv(ctx->conn->fd, peek_buf, sizeof(peek_buf), MSG_PEEK|MSG_DONTWAIT);
+    const ssize_t n = recv(conn->fd, peek_buf, sizeof(peek_buf), MSG_PEEK);
     if (n == 0) {
         /* Assume HTTP/1.1 and move on... */
-        ctx->conn->protocol = PROTO_HTTP11;
+        conn->protocol = PROTO_HTTP11;
         return;
     }
     if (n < 0) {
-        l_warn(ctx->log, "Initial read attempt from socket failed! Dropping connection");
-        ctx->conn->protocol = PROTO_UNKNOWN;
-        ctx->status_code = 500; /* Internal Server Error. */
+        //l_warn(ctx->log, "Initial read attempt from socket failed! Dropping connection");
+        conn->protocol = PROTO_UNKNOWN;
+        //ctx->status_code = 500; /* Internal Server Error. */
         return;
     }
 
     if (memcmp(peek_buf, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", 24) == 0) {
-        ctx->conn->protocol = PROTO_HTTP2;
+        conn->protocol = PROTO_HTTP2;
         return;
     }
-    ctx->conn->protocol = PROTO_HTTP11;
+    conn->protocol = PROTO_HTTP11;
 }
 
 

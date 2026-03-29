@@ -32,7 +32,7 @@ extern config_data conf_data;
 
 int create_listener(uint16_t port, logger_t *log);
 int accept_connection(int listen_fd, int is_tls, conn_t* conn);
-void demux_protocol(request_ctx_t* ctx);
+void demux_protocol(conn_t* conn);
 void set_socket_timeout(int fd, int seconds);
 void close_connection(const conn_t* conn);
 
