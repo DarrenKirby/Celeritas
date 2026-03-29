@@ -186,11 +186,16 @@ void *logger_thread(void *arg)
         /* Fire them off in a burst. */
         if (access_count > 0) {
             const ssize_t rv = writev(log->access_fd, iov_access, access_count);
-            if (rv < 0) continue;
+            if (rv < 0) {
+                l_warn(log, "access log write failed");
+                continue;
+            }
         }
         if (event_count > 0) {
             const ssize_t rv = writev(log->event_fd, iov_event, event_count);
-            if (rv < 0) continue;
+            if (rv < 0) {
+                l_warn(log, "event log write failed");
+            }
         }
     }
     return NULL;
@@ -203,11 +208,17 @@ static void early_fatal(const char *msg)
                   O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         ssize_t rv = write(fd, msg, strlen(msg));
-        if (rv < 0) exit(1);
+        if (rv < 0) {
+            close(fd);
+            exit(1);
+        }
         rv = write(fd, "\n", 1);
-        if (rv < 0) exit(1);
-        close(fd);
+        if (rv < 0) {
+            close(fd);
+            exit(1);
+        }
     }
+    close(fd);
     exit(1);
 }
 

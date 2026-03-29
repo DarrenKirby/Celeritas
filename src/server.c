@@ -102,14 +102,19 @@ int already_running(char* lockfile_name, logger_t* log)
             close(fd);
             return 1;
         }
-        l_error(log, "can't lck lockfile %s: %s", lockfile_name, strerror(errno));
+        l_error(log, "can't lock lockfile %s: %s", lockfile_name, strerror(errno));
         server_shutdown(log, 1);
     }
 
-    ftruncate(fd, 0);
+    if (ftruncate(fd, 0) < 0) {
+        l_error(log, "can't truncate lockfile %s: %s", lockfile_name, strerror(errno));
+    }
     char buf[16];
     snprintf(buf, sizeof(buf),"%ld", (long)getpid());
-    write(fd, buf, strlen(buf) + 1);
+    const ssize_t rv = write(fd, buf, strlen(buf) + 1);
+    if (rv < 0) {
+        l_warn(log, "can't write to lockfile %s: %s", lockfile_name, strerror(errno));
+    }
     return 0;
 }
 

@@ -44,8 +44,6 @@ int create_listener(uint16_t port, logger_t *log)
     const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr));
     if (ret != 0) {
         l_error(log, "bind() failed: %s", strerror(errno));
-        // log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - bind failed: %s\n",
-        //         l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), strerror(errno));
         close(fd);
         return -1;
     }
@@ -99,9 +97,7 @@ void demux_protocol(conn_t* conn)
         return;
     }
     if (n < 0) {
-        //l_warn(ctx->log, "Initial read attempt from socket failed! Dropping connection");
         conn->protocol = PROTO_UNKNOWN;
-        //ctx->status_code = 500; /* Internal Server Error. */
         return;
     }
 
