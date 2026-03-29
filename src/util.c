@@ -30,6 +30,23 @@
 #include <time.h>
 
 
+/* Rounds a 32-bit integer up to the next highest power of 2.
+ * This is for enforcing power of 2 values for the log buffer size. */
+uint32_t next_power_of_2(uint32_t v)
+{
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v++;
+
+    /* Catch 0 or sizes that overflowed */
+    return (v == 0) ? 1 : v;
+}
+
+
 long get_ncpu(void)
 {
     long n_cpu;
@@ -58,19 +75,23 @@ uint64_t get_now_us(void)
 
 
 /* Fills a buffer with the current IMF-fixdate format time. */
-void get_http_date_now(char *buf, size_t len)
+void get_http_date_now(char *buf, const size_t len)
 {
+    struct tm tm_info; /* Stack allocated, thread-safe */
     const time_t now = time(nullptr);
-    const struct tm *tm_info = gmtime(&now);
-    strftime(buf, len, "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+
+    gmtime_r(&now, &tm_info);
+    strftime(buf, len, "%a, %d %b %Y %H:%M:%S GMT", &tm_info);
 }
 
 
 /* Fills a buffer with a supplied time_t IMF-fixdate format time for http messages. */
-void get_http_date_time_t(char *buf, size_t len, time_t the_time)
+void get_http_date_time_t(char *buf, const size_t len, const time_t the_time)
 {
-    const struct tm *tm_info = gmtime(&the_time);
-    strftime(buf, len, "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+    struct tm tm_info; /* Stack allocated, thread-safe */
+
+    gmtime_r(&the_time, &tm_info);
+    strftime(buf, len, "%a, %d %b %Y %H:%M:%S GMT", &tm_info);
 }
 
 
@@ -80,6 +101,30 @@ const char* int_to_string(const int i)
     static char buf[32];
     snprintf(buf, 32, "%d", i);
     return buf;
+}
+
+
+bool confirm_header_exists(const request_ctx_t* ctx, const char* header_name)
+{
+    for (int i = 0; i < ctx->request.h1.header_count; i++) {
+        if (strcasecmp(ctx->request.h1.headers[i].key, header_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+/* Case-insensitive search for a request header key. Returns
+ * null if the header does not exist. */
+const char* get_header_value(const request_ctx_t* ctx, const char* key)
+{
+    for (int i = 0; i < ctx->request.h1.header_count; i++) {
+        if (strcasecmp(ctx->request.h1.headers[i].key, key) == 0) {
+            return ctx->request.h1.headers[i].value;
+        }
+    }
+    return nullptr;
 }
 
 
