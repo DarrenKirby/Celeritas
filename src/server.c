@@ -93,8 +93,7 @@ int already_running(char* lockfile_name, logger_t* log)
     const int fd = open(lockfile_name, O_RDWR | O_CREAT, LOCK_MODE);
 
     if (fd < 0) {
-        log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't open lockfile %s: %s\n",
-                l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
+        l_error(log, "can't open lockfile %s: %s", lockfile_name, strerror(errno));
         server_shutdown(log, 1);
     }
 
@@ -103,8 +102,7 @@ int already_running(char* lockfile_name, logger_t* log)
             close(fd);
             return 1;
         }
-        log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't lock lockfile %s: %s\n",
-                l_priority(L_ERROR), l_format_datetime(), lockfile_name, strerror(errno));
+        l_error(log, "can't lck lockfile %s: %s", lockfile_name, strerror(errno));
         server_shutdown(log, 1);
     }
 
@@ -127,8 +125,7 @@ void* thr_sig_handler(void *arg)
     while (1) {
         const int ret = sigwait(sig_mask, &sig_no);
         if (ret != 0) {
-            log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - can't wait for signal: %s\n",
-                l_priority(L_ERROR), l_format_datetime(), strerror(ret));
+            l_error(log, "sigwait failed: %s", strerror(ret));
             server_shutdown(log, 1);
         }
 
@@ -141,8 +138,7 @@ void* thr_sig_handler(void *arg)
                 l_info(log, "server received SIGTERM");
                 server_shutdown(log, 0);
             default:
-                log_write(&log->ring, LOG_TARGET_EVENT, "%s %s - unexpected signal: %d\n",
-                    l_priority(L_WARN), l_format_datetime());
+                l_error(log, "unexpected signal: %d", sig_no);
         }
     }
 }
@@ -176,10 +172,10 @@ void server_shutdown(logger_t* log, const int status)
     shutting_down = 1;
 
     /* First thing to do is stop the listener threads. */
-    pthread_join(server.http_listener, nullptr);
-    pthread_join(server.https_listener, nullptr);
     close(server.http_fd);
     close(server.https_fd);
+    pthread_join(server.http_listener, nullptr);
+    pthread_join(server.https_listener, nullptr);
 
     /* Wake all workers. */
     pthread_mutex_lock(&server.queue->mutex);
