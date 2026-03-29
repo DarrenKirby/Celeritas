@@ -24,6 +24,6 @@
 typedef struct request_ctx_t request_ctx_t;
 
 
-int validate_request(request_ctx_t *ctx) ;
+void validate_request(request_ctx_t *ctx) ;
 
 #endif //CELERITAS_VALIDATOR_H

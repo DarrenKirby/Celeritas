@@ -24,46 +24,56 @@
 
 #include <string.h>
 
+#include "util.h"
 
-int validate_request(request_ctx_t *ctx)
+
+void validate_request(request_ctx_t *ctx)
 {
     char *uri = ctx->request.h1.uri;
+    const char* method = ctx->request.h1.method;
 
-    if (strcmp("GET", ctx->request.h1.method) == 0) {
+    if (strcmp("GET", method) == 0) {
         ctx->method = M_GET;
-    } else if (strcmp("HEAD", ctx->request.h1.method) == 0) {
+    } else if (strcmp("HEAD", method) == 0) {
         ctx->method = M_HEAD;
-    } else if (strcmp("PUT", ctx->request.h1.method) == 0) {
+    } else if (strcmp("PUT", method) == 0) {
         ctx->method = M_PUT;
-    } else if (strcmp("DELETE", ctx->request.h1.method) == 0) {
+    } else if (strcmp("DELETE", method) == 0) {
         ctx->method = M_DELETE;
-    } else if (strcmp("TRACE", ctx->request.h1.method) == 0) {
+    } else if (strcmp("TRACE", method) == 0) {
         ctx->method = M_TRACE;
-    } else if (strcmp("POST", ctx->request.h1.method) == 0) {
+    } else if (strcmp("POST", method) == 0) {
         ctx->method = M_POST;
+    } else if (strcmp("OPTIONS", method) == 0) {
+        ctx->method = M_OPTIONS;
     } else {
         ctx->method = M_INVALID;
-        resp_set_status(ctx, 400);
-        //ctx->status_code = 405;
-        return -1;
+        l_warn(ctx->log, "unknown method: %s", method);
+        resp_set_status(ctx, SC_400_BAD_REQUEST);
+        return;
     }
 
-    /* Basic Path Traversal Check (The "Dot-Dot-Slash" test). */
+    /* Check for Host header. */
+    if (!confirm_header_exists(ctx, "Host")) {
+        resp_set_status(ctx, SC_400_BAD_REQUEST);
+        l_warn(ctx->log, "request does not contain Host header");
+        return;
+    }
+
+    /* Basic path traversal check. */
     if (strstr(uri, "..")) {
-        log_write(&ctx->log->ring, LOG_TARGET_EVENT, "%s - %s - Potential path traversal attempt: %s",
-            L_WARN, l_format_datetime(), uri);
-        resp_set_status(ctx, 403);
-        return -1;
+        l_warn(ctx->log, "potential path traversal attempt: %s", uri);
+        resp_set_status(ctx, SC_403_FORBIDDEN);
+        return;
     }
 
     /* Method Whitelist. */
-    const int mask = M_GET|M_HEAD;
+    const int mask = M_GET|M_HEAD|M_OPTIONS;
     if (!(ctx->method & mask)) {
-        log_write(&ctx->log->ring, LOG_TARGET_EVENT, "%s - %s - Request for unsupported method: %s",
-            L_DEBUG, l_format_datetime(), uri);
-        resp_set_status(ctx, 405);
-        return -1;
+        l_warn(ctx->log, "request for unsupported method: %s", ctx->request.h1.method);
+        resp_set_status(ctx, SC_405_METHOD_NOT_ALLOWED);
+        return;
     }
-    resp_set_status(ctx, 200);
-    return 0;
+
+    resp_set_status(ctx, SC_200_OK);
 }
