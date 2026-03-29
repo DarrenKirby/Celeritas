@@ -67,10 +67,11 @@ void daemonize(void)
 
     /* Change CWD to root so we won't stop filesystems
      * from being unmounted. */
-    if (chdir("/") < 0) {
-        fprintf(stderr, "chdir: %s\n", strerror(errno));
-        exit(1);
-    }
+    /* FIXME: disable cd during testing. */
+    // if (chdir("/") < 0) {
+    //     fprintf(stderr, "chdir: %s\n", strerror(errno));
+    //     exit(1);
+    // }
 
     /* Close all open file descriptors. */
     if (rl.rlim_max == RLIM_INFINITY) { rl.rlim_max = 1024; }
