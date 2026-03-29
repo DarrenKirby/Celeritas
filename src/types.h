@@ -29,6 +29,7 @@
 #define LOG_LINE_MAX  2048
 #define LOG_RING_SIZE 512   /* must be power of 2 for cheap modulo */
 #define HEADER_BUFFER_SIZE 8192
+#define CACHE_LINE 64
 
 
 typedef struct log_entry_t log_entry_t;
@@ -39,6 +40,83 @@ typedef struct request_ctx_t request_ctx_t;
 typedef struct kv_t kv_t;
 typedef struct http1_req_t http1_req_t;
 typedef struct h2_stream_t h2_stream_t;
+
+
+typedef enum {
+    /* Informational */
+    SC_100_CONTINUE = 100,
+    SC_101_SWITCHING_PROTOCOLS = 101,
+    SC_102_PROCESSING = 102,
+    SC_103_EARLY_HINTS = 103,
+
+    /* Successful */
+    SC_200_OK = 200,
+    SC_201_CREATED = 201,
+    SC_202_ACCEPTED = 202,
+    SC_203_NON_AUTHORITATIVE_INFORMATION = 203,
+    SC_204_NO_CONTENT = 204,
+    SC_205_RESET_CONTENT = 205,
+    SC_206_PARTIAL_CONTENT = 206,
+    SC_207_MULTI_STATUS = 207,
+    SC_208_ALREADY_REPORTED = 208,
+    SC_226_IM_USED = 226,
+
+    /* Redirection */
+    SC_300_MULTIPLE_CHOICES = 300,
+    SC_301_MOVED_PERMANENTLY = 301,
+    SC_302_FOUND = 302,
+    SC_303_SEE_OTHER = 303,
+    SC_304_NOT_MODIFIED = 304,
+    SC_305_USE_PROXY = 305,
+    SC_306_UNUSED = 306,
+    SC_307_TEMPORARY_REDIRECT = 307,
+    SC_308_PERMANENT_REDIRECT = 308,
+
+    /* Client Error */
+    SC_400_BAD_REQUEST = 400,
+    SC_401_UNAUTHORIZED = 401,
+    SC_402_PAYMENT_REQUIRED = 402,
+    SC_403_FORBIDDEN = 403,
+    SC_404_NOT_FOUND = 404,
+    SC_405_METHOD_NOT_ALLOWED = 405,
+    SC_406_NOT_ACCEPTABLE = 406,
+    SC_407_PROXY_AUTHENTICATION_REQUIRED = 407,
+    SC_408_REQUEST_TIMEOUT = 408,
+    SC_409_CONFLICT = 409,
+    SC_410_GONE = 410,
+    SC_411_LENGTH_REQUIRED = 411,
+    SC_412_PRECONDITION_FAILED = 412,
+    SC_413_CONTENT_TOO_LARGE = 413,
+    SC_414_URI_TOO_LONG = 414,
+    SC_415_UNSUPPORTED_MEDIA_TYPE = 415,
+    SC_416_RANGE_NOT_SATISFIABLE = 416,
+    SC_417_EXPECTATION_FAILED = 417,
+    SC_418_IM_A_TEAPOT = 418,
+    SC_421_MISDIRECTED_REQUEST = 421,
+    SC_422_UNPROCESSABLE_CONTENT = 422,
+    SC_423_LOCKED = 423,
+    SC_424_FAILED_DEPENDENCY = 424,
+    SC_425_TOO_EARLY = 425,
+    SC_426_UPGRADE_REQUIRED = 426,
+    SC_428_PRECONDITION_REQUIRED = 428,
+    SC_429_TOO_MANY_REQUESTS = 429,
+    SC_431_REQUEST_HEADER_FIELDS_TOO_LARGE = 431,
+    SC_451_UNAVAILABLE_FOR_LEGAL_REASONS = 451,
+
+    /* Server Error */
+    SC_500_INTERNAL_SERVER_ERROR = 500,
+    SC_501_NOT_IMPLEMENTED = 501,
+    SC_502_BAD_GATEWAY = 502,
+    SC_503_SERVICE_UNAVAILABLE = 503,
+    SC_504_GATEWAY_TIMEOUT = 504,
+    SC_505_HTTP_VERSION_NOT_SUPPORTED = 505,
+    SC_506_VARIANT_ALSO_NEGOTIATES = 506,
+    SC_507_INSUFFICIENT_STORAGE = 507,
+    SC_508_LOOP_DETECTED = 508,
+    SC_510_NOT_EXTENDED = 510,
+    SC_511_NETWORK_AUTHENTICATION_REQUIRED = 511
+
+} http_status_code_t;
 
 
 typedef enum {
@@ -75,43 +153,41 @@ typedef enum {
 
 
 typedef enum {
-    M_GET = 1 << 0,
-    M_HEAD = 1 << 1,
-    M_POST = 1 << 2,
-    M_PUT = 1 << 3,
-    M_DELETE = 1 << 4,
-    M_TRACE = 1 << 5,
-    M_CONNECT = 1 << 6,
-    M_DISCONNECT = 1 << 7,
-    M_CLOSE = 1 << 8,
-    M_INVALID = 1 << 9
+    M_GET     = 1 << 0,
+    M_HEAD    = 1 << 1,
+    M_POST    = 1 << 2,
+    M_PUT     = 1 << 3,
+    M_DELETE  = 1 << 4,
+    M_CONNECT = 1 << 5,
+    M_OPTIONS = 1 << 6,
+    M_TRACE   = 1 << 7,
+    M_INVALID = 1 << 8
 } http_method_t;
 
 
 struct log_entry_t {
     log_target_t target;
-    int          len;
+    size_t       len;
     char         line[LOG_LINE_MAX];
 };
 
 
 struct log_ring_t {
-    log_entry_t     entries[LOG_RING_SIZE];
-    int             head;       /* logger thread reads from here  */
-    int             tail;       /* producers write to here        */
-    int             count;      /* current number of entries      */
-    pthread_mutex_t mutex;
-    pthread_cond_t  not_empty;  /* logger sleeps on this          */
-    pthread_cond_t  not_full;   /* producers sleep on this if full */
+    alignas(CACHE_LINE) int tail;                /* producers write to here. */
+    alignas(CACHE_LINE) int head;                /* logger thread reads from here. */
+    alignas(CACHE_LINE) pthread_mutex_t mutex;
+    pthread_cond_t  not_empty;                   /* logger sleeps on this. */
+    pthread_cond_t  not_full;                    /* producers sleep on this if full. */
+    alignas(CACHE_LINE) log_entry_t entries[LOG_RING_SIZE];
 };
 
 
 struct logger_t {
-    int        access_fd; /* Access log file descriptor. */
-    int        event_fd;  /* Error log file descriptor. */
-    log_ring_t ring;      /* The log entry ring buffer. */
-    pthread_t  thread;    /* The singleton logger thread ID. */
-    int        shutdown;  /* Set to 1 by main thread to signal exit */
+    int        access_fd;   /* Access log file descriptor. */
+    int        event_fd;    /* Error log file descriptor. */
+    log_ring_t ring;        /* The log entry ring buffer. */
+    pthread_t  thread;      /* The singleton logger thread ID. */
+    int        shutdown;    /* Set to 1 by main thread to signal exit */
 };
 
 
