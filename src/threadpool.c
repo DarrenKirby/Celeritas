@@ -104,6 +104,9 @@ void *worker_thread(void *arg) {
     while (queue_pop(wa->queue, &conn) == 0) {
         bool persistent = true;
 
+        /* Determine the HTTP version of the request.*/
+        demux_protocol(&conn);
+
         /* Keep-alive loop. */
         while (persistent) {
             request_ctx_t *ctx = calloc(1, sizeof(request_ctx_t));
@@ -125,11 +128,9 @@ void *worker_thread(void *arg) {
             }
 
             /* Validate and route request. */
-            /* If validation fails, it sets 4xx status inside the function. */
-            if (validate_request(ctx) == 0) {
-                route_request(ctx); /* Set ctx->handler. */
-                ctx->handler(ctx);  /* Execute the handler (Static/Dynamic/Error). */
-            }
+            validate_request(ctx);  /* If validation fails, it sets 4xx status inside the function. */
+            route_request(ctx);     /* Set ctx->handler. */
+            ctx->handler(ctx);      /* Execute the handler (Static/Dynamic/Error). */
 
             /* Send response and log access. */
             send_response(ctx);
@@ -146,6 +147,8 @@ void *worker_thread(void *arg) {
             }
 
             request_finish:
+                //debug_print_request(ctx);
+                //debug_print_response(ctx);
                 /* Run munmap(), or free heap allocated buffer. */
                 cleanup_request_resources(ctx);
                 free(ctx);
@@ -162,8 +165,7 @@ void *listener_thread(void *arg)
     work_queue_t *q = la->queue;
     logger_t *log = la->logger;
 
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - binding to port %d\n",
-        l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), la->port);
+    l_info(log, "binding to port: %d", la->port);
 
     /* Next step... */
     const int listen_fd = create_listener(la->port, log);
@@ -187,8 +189,7 @@ void *listener_thread(void *arg)
 
         /* Log accept() failure. */
         if (rv != 0) {
-            log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - accept failed: %s\n",
-                    l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), strerror(rv));
+            l_warn(log, "accept() failed: %s", strerror(rv));
             continue;
         }
 
@@ -229,8 +230,7 @@ void worker_init(logger_t* log)
     w_args.queue = queue;
 
     /* Spawn the workers... */
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - spawning %d worker threads\n",
-        l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), N);
+    l_debug(log, "spawning %d worker threads", N);
     server.n_workers = N;
     server.workers = malloc(sizeof(pthread_t) * N);
 
