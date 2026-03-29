@@ -78,7 +78,7 @@ int main(const int argc, char** argv)
 
     /* Write a lockfile; Make sure only one copy of the daemon is running. */
     char lockfile[PATH_MAX];
-    snprintf(lockfile, PATH_MAX, "/Users/darrenkirby/code/celeritas/run/%s.pid", cmd);
+    snprintf(lockfile, PATH_MAX, "../run/%s.pid", cmd);
 
     if (already_running(lockfile, &logger)) {
         l_error(&logger, "server already running");

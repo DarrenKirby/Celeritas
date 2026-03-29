@@ -33,9 +33,9 @@ config_data read_config(void)
     cd.min_threads = ncpu;
     cd.max_threads = ncpu * 2;
     cd.queue_depth = 256;
-    strncpy(cd.access_log, "/Users/darrenkirby/code/celeritas/logs/access_log", PATH_MAX);
-    strncpy(cd.event_log, "/Users/darrenkirby/code/celeritas/logs/event_log", PATH_MAX);
-    strncpy(cd.doc_root, "/Users/darrenkirby/code/celeritas/www", PATH_MAX);
+    strncpy(cd.access_log, "../logs/access_log", PATH_MAX);
+    strncpy(cd.event_log, "../logs/event_log", PATH_MAX);
+    strncpy(cd.doc_root, "../www", PATH_MAX);
     strncpy(cd.server_tok, "Celeritas/0.1", 15);
     const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     cd.mutex = mtx;
