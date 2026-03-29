@@ -29,6 +29,11 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <libgen.h>
+#include <sys/uio.h>
+
+#include "util.h"
+
+#define BATCH_SIZE 32
 
 
 logger_t logger;
@@ -38,8 +43,8 @@ char* l_priority(const int priority)
 {
     switch (priority) {
         case L_DEBUG: return "[debug]";
-        case L_INFO:  return "[info]";
-        case L_WARN:  return "[warn]";
+        case L_INFO:  return " [info]";
+        case L_WARN:  return " [warn]";
         case L_ERROR: return "[error]";
         default: return "";
     }
@@ -50,10 +55,17 @@ char* l_priority(const int priority)
  * formatted as "2026-04-22 15:36:22 PDT". */
 char* l_format_datetime(void)
 {
-    static char t_buf[24];
+    /* __thread (or _Thread_local in C11) gives every thread its own buffer. */
+    static __thread char t_buf[32];
+
+    struct tm tm_info;
     const time_t now = time(nullptr);
-    const struct tm *tm = localtime(&now);
-    strftime(t_buf, sizeof(t_buf), "%F %T %Z", tm);
+
+    /* localtime_r writes directly into the stack-allocated tm_info. */
+    localtime_r(&now, &tm_info);
+
+    strftime(t_buf, sizeof(t_buf), "%F %T %Z", &tm_info);
+
     return t_buf;
 }
 
@@ -65,105 +77,116 @@ void *get_tid(void)
 }
 
 
-void l_debug(logger_t* log, char* s)
+void log_access(request_ctx_t* ctx, const uint64_t latency)
 {
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
-        l_priority(L_DEBUG), l_format_datetime(), conf_data.server_pid, get_tid(), s);
-}
-
-
-void l_info(logger_t* log, char* s)
-{
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
-        l_priority(L_INFO), l_format_datetime(), conf_data.server_pid, get_tid(), s);
-}
-
-
-void l_warn(logger_t* log, char* s)
-{
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
-        l_priority(L_WARN), l_format_datetime(), conf_data.server_pid, get_tid(), s);
-}
-
-
-void l_error(logger_t* log, char* s)
-{
-    log_write(&log->ring, LOG_TARGET_EVENT, "%s - %s - pid %d - tid %p - %s\n",
-        l_priority(L_ERROR), l_format_datetime(), conf_data.server_pid, get_tid(), s);
-}
-
-
-void log_access(request_ctx_t* ctx, uint64_t latency)
-{
-    log_write(&ctx->log->ring, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d latency: %lld\n",
+    log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluus] - %s\n",
     ctx->conn->remote_ip, l_format_datetime(), ctx->request.h1.method, ctx->request.h1.uri, ctx->request.h1.version,
-    ctx->status_code, ctx->response.body_len, latency);
+    ctx->status_code, ctx->response.body_len, (unsigned long long)latency,
+    confirm_header_exists(ctx, "User-Agent") ? get_header_value(ctx, "User-Agent") : "");
 }
 
 
-void log_write(log_ring_t *ring, const log_target_t target, const char *fmt, ...)
+void log_write(logger_t* log, const log_target_t target, const char *fmt, ...)
 {
     log_entry_t entry;
 
-    /* Format entirely before taking the lock */
+    /* Format entirely before taking the lock. */
     va_list args;
     va_start(args, fmt);
     entry.len = vsnprintf(entry.line, LOG_LINE_MAX, fmt, args);
     entry.target = target;
     va_end(args);
 
-    /* Now touch shared state */
-    THR_OK(pthread_mutex_lock(&ring->mutex));
+    /* Now touch shared state. */
+    THR_OK(pthread_mutex_lock(&log->ring.mutex));
 
-    if (ring->count == LOG_RING_SIZE) {
-        /*
-         * Ring is full. Two options:
-         *   a) Drop the entry (common for access logs under load)
-         *   b) Block until space is available
-         */
-        THR_OK(pthread_mutex_unlock(&ring->mutex));
-        return;  /* Dropped.  */
+    /* Pre-calculate where the tail will go next. */
+    const int next_tail = (log->ring.tail + 1) & (LOG_RING_SIZE - 1);
+
+    /* Check if full. */
+    if (next_tail == log->ring.head) {
+        if (target == LOG_TARGET_ACCESS) {
+            /* Drop access logs under heavy load. */
+            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+            return;
+        }
+        /* Block event/error logs until the logger frees up space. */
+        while (next_tail == log->ring.head && !log->shutdown) {
+            THR_OK(pthread_cond_wait(&log->ring.not_full, &log->ring.mutex));
+        }
+
+        /* If the thread woke up because of a shutdown, bail out. */
+        if (log->shutdown) {
+            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+            return;
+        }
     }
 
     entry.target = target;
-    ring->entries[ring->tail] = entry;
-    ring->tail = (ring->tail + 1) & (LOG_RING_SIZE - 1);  /* Cheap % for power-of-2. */
-    ring->count++;
+    log->ring.entries[log->ring.tail] = entry;
+    log->ring.tail = next_tail;
 
-    THR_OK(pthread_cond_signal(&ring->not_empty));
-    THR_OK(pthread_mutex_unlock(&ring->mutex));
+    THR_OK(pthread_cond_signal(&log->ring.not_empty));
+    THR_OK(pthread_mutex_unlock(&log->ring.mutex));
 }
 
 
 void *logger_thread(void *arg)
 {
-
-    logger_t   *log  = arg;
-    log_ring_t *ring = &log->ring;
+    logger_t *log = arg;
 
     while (1) {
-        THR_OK(pthread_mutex_lock(&ring->mutex));
+        log_entry_t local_batch[BATCH_SIZE];
+        int batch_count = 0;
 
-        /* Sleep until there is something to write */
-        while (ring->count == 0 && !log->shutdown)
-            THR_OK(pthread_cond_wait(&ring->not_empty, &ring->mutex));
+        /* ### Critical section start. ### */
+        THR_OK(pthread_mutex_lock(&log->ring.mutex));
 
-        if (ring->count == 0 && log->shutdown) {
-            THR_OK(pthread_mutex_unlock(&ring->mutex));
+        /* Sleep until there is something to write. */
+        while (log->ring.tail == log->ring.head && !log->shutdown) {
+            THR_OK(pthread_cond_wait(&log->ring.not_empty, &log->ring.mutex));
+        }
+
+        /* If empty and shutting down, bail out */
+        if (log->ring.tail == log->ring.head && log->shutdown) {
+            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
             break;
         }
 
-        /* Dequeue */
-        const log_entry_t entry = ring->entries[ring->head];
-        ring->head  = (ring->head + 1) & (LOG_RING_SIZE - 1);
-        ring->count--;
+        /* Grab up to BATCH_SIZE entries at once. */
+        while (log->ring.head != log->ring.tail && batch_count < BATCH_SIZE) {
+            local_batch[batch_count++] = log->ring.entries[log->ring.head];
+            log->ring.head = (log->ring.head + 1) & (LOG_RING_SIZE - 1);
+        }
 
-        THR_OK(pthread_mutex_unlock(&ring->mutex));
+        /* Wake up ANY workers blocked on a full queue, since we just cleared space. */
+        if (batch_count > 0) {
+            THR_OK(pthread_cond_broadcast(&log->ring.not_full));
+        }
 
-        /* Write — outside the lock, only this thread touches the fds */
-        const int fd = (entry.target == LOG_TARGET_ACCESS) ? log->access_fd
-                                                           : log->event_fd;
-        write(fd, entry.line, entry.len);
+        THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+        /* ### Critical section end. ### */
+
+        /* Set up the iovec array to point to the local copies. */
+        struct iovec iov_access[BATCH_SIZE];
+        struct iovec iov_event[BATCH_SIZE];
+        int access_count = 0, event_count = 0;
+
+        for (int i = 0; i < batch_count; i++) {
+            if (local_batch[i].target == LOG_TARGET_ACCESS) {
+                iov_access[access_count].iov_base = local_batch[i].line;
+                iov_access[access_count].iov_len  = local_batch[i].len;
+                access_count++;
+            } else {
+                iov_event[event_count].iov_base = local_batch[i].line;
+                iov_event[event_count].iov_len  = local_batch[i].len;
+                event_count++;
+            }
+        }
+
+        /* Fire them off in a burst. */
+        if (access_count > 0) writev(log->access_fd, iov_access, access_count);
+        if (event_count > 0)  writev(log->event_fd, iov_event, event_count);
     }
     return NULL;
 }
@@ -216,10 +239,9 @@ void logger_init(void)
     }
 
     logger.shutdown = 0;
-
     logger.ring.head  = 0;
     logger.ring.tail  = 0;
-    logger.ring.count = 0;
+
     pthread_mutex_init(&logger.ring.mutex, nullptr);
     pthread_cond_init(&logger.ring.not_empty, nullptr);
     pthread_cond_init(&logger.ring.not_full, nullptr);
@@ -232,13 +254,18 @@ void logger_init(void)
 
 void logger_shutdown(logger_t *log)
 {
-    /* Signal the logger thread to wake up and exit. */
     pthread_mutex_lock(&log->ring.mutex);
     log->shutdown = 1;
+
+    /* Wake up the logger thread so it can drain and exit. */
     pthread_cond_signal(&log->ring.not_empty);
+
+    /* Wake up ALL blocked worker threads so they don't hang forever. */
+    pthread_cond_broadcast(&log->ring.not_full);
+
     pthread_mutex_unlock(&log->ring.mutex);
 
-    /* Wait for it to finish draining the ring and exit. */
+    /* Wait for the logger to finish draining the ring and exit. */
     pthread_join(log->thread, nullptr);
 
     close(log->access_fd);
