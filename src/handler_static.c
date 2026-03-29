@@ -60,14 +60,14 @@ void resolve_path(const char *docroot, const char *uri, char *out_path, size_t o
 }
 
 
-void handle_error(request_ctx_t *ctx) {
-    char now[30];
-    get_http_date_now(now, 30);
-
-    resp_add_header(ctx, "Server", "Celeritas/0.1");
+void handle_error(request_ctx_t *ctx)
+{
+    resp_add_common_headers(ctx);
     resp_add_header(ctx, "Connection", "close");
     resp_add_header(ctx, "Content-Type", "text/html");
-    resp_add_header(ctx, "Date", now);
+    if (ctx->status_code == SC_405_METHOD_NOT_ALLOWED) {
+        resp_add_header(ctx, "Allow", "GET, HEAD, OPTIONS");
+    }
 
     /* Generate a simple HTML body based on the status code. */
     char *body = malloc(512);
@@ -88,6 +88,31 @@ void handle_error(request_ctx_t *ctx) {
 }
 
 
+
+void handle_static(request_ctx_t *ctx)
+{
+    switch (ctx->method) {
+        case M_GET:
+        case M_HEAD:
+            return handle_get_head(ctx);
+        case M_OPTIONS:
+            return handle_options(ctx);
+        default:
+            ;
+    }
+}
+
+
+void handle_options(request_ctx_t *ctx)
+{
+    resp_add_common_headers(ctx);
+    resp_add_header(ctx, "Accept-Ranges",  "bytes");
+    resp_add_header(ctx, "Allow", "GET, HEAD, OPTIONS");
+    resp_add_header(ctx, "Content-Length", int_to_string(0));
+    resp_add_header(ctx, "Connection", "keep-alive");
+}
+
+
 void handle_get_head(request_ctx_t* ctx)
 {
     char local_file[PATH_MAX];
@@ -97,7 +122,7 @@ void handle_get_head(request_ctx_t* ctx)
     struct stat sb;
 
     if (stat(local_file, &sb) == -1) {
-        resp_set_status(ctx, 404);
+        resp_set_status(ctx, SC_404_NOT_FOUND);
         handle_error(ctx);
         return;
     }
@@ -105,11 +130,8 @@ void handle_get_head(request_ctx_t* ctx)
     ctx->response.body_len = sb.st_size;
     char last_mod[30];
     get_http_date_time_t(last_mod, 30, sb.st_mtime);
-    char now[30];
-    get_http_date_now(now, 30);
 
-    resp_add_header(ctx, "Server", "Celeritas/0.1");
-    resp_add_header(ctx, "Date", now);
+    resp_add_common_headers(ctx);
     resp_add_header(ctx, "Content-Type", get_mime_type(local_file));
     resp_add_header(ctx, "Last-Modified", last_mod);
     resp_add_header(ctx, "Content-Length", int_to_string(sb.st_size));
