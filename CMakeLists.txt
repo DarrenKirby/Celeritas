@@ -14,7 +14,7 @@ find_package(OpenSSL REQUIRED)
 message(STATUS "Found OpenSSL ${OPENSSL_VERSION}")
 
 # --- Build flags (compiler only, no linker flags here) ---
-option(DEBUG_BUILD "Enable debug CFLAGS" OFF)
+option(DEBUG_BUILD "Enable debug CFLAGS" ON)
 if(DEBUG_BUILD)
     set(CMAKE_C_FLAGS "-march=native -Wall -Wextra -Werror -O0 -g -D_GNU_SOURCE -fsanitize=address,undefined")
     message(STATUS "Building with debug symbols and sanitizers.")
