@@ -27,30 +27,89 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
+#include <netdb.h>
 
 
-int create_listener(uint16_t port, logger_t *log)
+int create_listener(const uint16_t port, logger_t *log)
 {
-    const int fd = socket(AF_INET6, SOCK_STREAM, 0);
+    char port_str[6];
+    snprintf(port_str, sizeof(port_str), "%u", port);
 
-    int yes = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    struct addrinfo hints = {0}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;        // IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;        // for bind()
 
-    struct sockaddr_in6 addr = {0};
-    addr.sin6_family = AF_INET6;
-    addr.sin6_addr = in6addr_any;
-    addr.sin6_port = htons(port);
-
-    const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr));
-    if (ret != 0) {
-        l_error(log, "bind() failed: %s", strerror(errno));
-        close(fd);
+    int rv = getaddrinfo(nullptr, port_str, &hints, &res);
+    if (rv != 0) {
+        l_error(log, "getaddrinfo() failed: %s", gai_strerror(rv));
         return -1;
     }
-    listen(fd, 128);
 
-    return fd;
+    int listen_fd = -1;
+
+    for (struct addrinfo *p = res; p != NULL; p = p->ai_next) {
+        listen_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (listen_fd < 0) {
+            continue;
+        }
+
+        int yes = 1;
+        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+        // Optional: allow IPv4 on IPv6 sockets (Linux-specific behaviour)
+        if (p->ai_family == AF_INET6) {
+            int no = 0;
+            setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &no, sizeof(no));
+        }
+
+        if (bind(listen_fd, p->ai_addr, p->ai_addrlen) == 0) {
+            // success
+            break;
+        }
+
+        l_warn(log, "bind() failed: %s", strerror(errno));
+        close(listen_fd);
+        listen_fd = -1;
+    }
+
+    freeaddrinfo(res);
+
+    if (listen_fd < 0) {
+        l_error(log, "failed to bind to port %u", port);
+        return -1;
+    }
+
+    if (listen(listen_fd, 128) != 0) {
+        l_error(log, "listen() failed: %s", strerror(errno));
+        close(listen_fd);
+        return -1;
+    }
+
+    return listen_fd;
 }
+// int create_listener(uint16_t port, logger_t *log)
+// {
+//     const int fd = socket(AF_INET6, SOCK_STREAM, 0);
+//
+//     int yes = 1;
+//     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+//
+//     struct sockaddr_in6 addr = {0};
+//     addr.sin6_family = AF_INET6;
+//     addr.sin6_addr = in6addr_any;
+//     addr.sin6_port = htons(port);
+//
+//     const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr));
+//     if (ret != 0) {
+//         l_error(log, "bind() failed: %s", strerror(errno));
+//         close(fd);
+//         return -1;
+//     }
+//     listen(fd, 128);
+//
+//     return fd;
+// }
 
 
 int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {
