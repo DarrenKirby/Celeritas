@@ -104,5 +104,6 @@ int main(const int argc, char** argv)
     l_debug(&logger, "initializing worker thread pool");
     worker_init(&logger);
 
-    pthread_exit(NULL);
+    /* Park main here. The signal handler thread drives all shutdown. */
+    pthread_join(tid, nullptr);
 }
