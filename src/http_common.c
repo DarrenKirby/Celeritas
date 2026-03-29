@@ -23,9 +23,12 @@
 #include "http1.h"
 #include "response.h"
 #include "socket.h"
+#include "logger.h"
 
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
+
 
 #define UPGRADE_REQUIRED 1
 
@@ -120,38 +123,32 @@ int process_ingress(request_ctx_t *ctx)
         switch (status) {
             /* Header too large. */
             case -3:
-                ctx->status_code = 431;
+                ctx->status_code = SC_431_REQUEST_HEADER_FIELDS_TOO_LARGE;
                 return -1;
             /* Socket error - set to internal server error. */
             case -1:
-                ctx->status_code = 500;
+                ctx->status_code = SC_500_INTERNAL_SERVER_ERROR;
                 return -1;
             /* Failed to parse request headers, some unspecified client error. */
             default:
-                ctx->status_code = 400;
+                ctx->status_code = SC_400_BAD_REQUEST;
                 return -1;
         }
     }
 
-    /* Determine the HTTP version of the request.
-     * Only run if not already known. */
-    if (ctx->conn->protocol == PROTO_UNKNOWN) {
-        demux_protocol(ctx);
-    }
-
     if (ctx->conn->protocol == PROTO_HTTP2) {
-        ctx->status_code = 505; /* "HTTP Version Not Supported" (for now). */
+        ctx->status_code = SC_505_HTTP_VERSION_NOT_SUPPORTED;
         return -1;
     }
 
     const int p_status = parse_http1(ctx, ctx->header_buffer, ctx->header_buffer_size);
     if (p_status == UPGRADE_REQUIRED) {
         // Handle h2c logic here later
-        ctx->status_code = 101;
+        ctx->status_code = SC_101_SWITCHING_PROTOCOLS;
         return -1;
     }
     if (p_status != 0) {
-        ctx->status_code = 400;
+        ctx->status_code = SC_400_BAD_REQUEST;
         return -1;
     }
 
@@ -168,22 +165,40 @@ void route_request(request_ctx_t *ctx)
         return;
     }
     /* Right now, only handlers are static and error. */
-    ctx->handler = handle_get_head;
+    ctx->handler = handle_static;
 }
 
 
 void send_response(request_ctx_t *ctx)
 {
     /* Build the header string into the buffer. */
-    const size_t header_len = resp_build_response(ctx, ctx->response.header_buffer, 8192);
+    const size_t header_len = resp_build_response(ctx, ctx->response.header_buffer, HEADER_BUFFER_SIZE);
 
     /* Send the headers. */
-    write(ctx->conn->fd, ctx->response.header_buffer, header_len);
+    int res = write(ctx->conn->fd, ctx->response.header_buffer, header_len);
+    if (res < 0) {
+        /* write() call failed - not much we can do but log it. */
+        l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
+        return;
+    }
+    if (res < (int)header_len) {
+        /* Write was truncated. */
+        l_warn(ctx->log, "write() headers to socket was truncated!");
+    }
 
     /* Send the body IF it's a GET request, and it has data
      * (HEAD requests MUST NOT have a body per RFC 9110). */
     if (ctx->method == M_GET && ctx->response.body_data != NULL && ctx->response.body_len > 0) {
-        write(ctx->conn->fd, ctx->response.body_data, ctx->response.body_len);
+        res = write(ctx->conn->fd, ctx->response.body_data, ctx->response.body_len);
+        if (res < 0) {
+            /* write() call failed - not much we can do but log it. */
+            l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
+            return;
+        }
+        if (res < (int)header_len) {
+            /* Write was truncated. */
+            l_warn(ctx->log, "write() body to socket was truncated!");
+        }
     }
 }
 
