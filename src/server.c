@@ -67,7 +67,9 @@ void daemonize(void)
 
     /* Change CWD to root so we won't stop filesystems
      * from being unmounted. */
-    /* FIXME: disable cd during testing. */
+    /* FIXME: disabled cd during testing, so I can cheat and use
+     * relative paths for files. Restore this after proper local
+     * config file parsing has been implemented. */
     // if (chdir("/") < 0) {
     //     fprintf(stderr, "chdir: %s\n", strerror(errno));
     //     exit(1);
@@ -111,8 +113,8 @@ int already_running(char* lockfile_name, logger_t* log)
         l_error(log, "can't truncate lockfile %s: %s", lockfile_name, strerror(errno));
     }
     char buf[16];
-    snprintf(buf, sizeof(buf),"%ld", (long)getpid());
-    const ssize_t rv = write(fd, buf, strlen(buf) + 1);
+    const ssize_t bytes_in_buf = snprintf(buf, sizeof(buf),"%ld", (long)getpid());
+    const ssize_t rv = write(fd, buf, bytes_in_buf);
     if (rv < 0) {
         l_warn(log, "can't write to lockfile %s: %s", lockfile_name, strerror(errno));
     }
@@ -120,6 +122,7 @@ int already_running(char* lockfile_name, logger_t* log)
 }
 
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void* thr_sig_handler(void *arg)
 {
     const sig_handler_t* sig_handler = arg;
