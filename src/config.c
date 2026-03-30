@@ -45,3 +45,34 @@ config_data read_config(void)
     cd.keepalive_timeout = 10;
     return cd;
 }
+
+/* Example config file format including default values
+ * -------------------------------------------------- *
+
+# Ports
+http_port = 80
+https_port = 443
+
+# Threads
+worker_threads = 12
+
+# Paths
+access_log = /var/log/celeritas/access_log
+event_log = /var/log/celeritas/event_log
+run_file = /var/run/celeritas.pid
+doc_root = /var/www/
+
+# limits
+max_rx_header_size = 8192
+max_tx_header_size = 8192
+max_url_size = 2048
+keepalive_timeout = 10
+
+# Queue sizes (will be rounded up to the next power of 2)
+log_queue_size =
+connection_queue_size =
+
+# Server identification (This will be appended to "Celeritas/0.1")
+server_id =
+
+ * ----------------------------------------------------- */
