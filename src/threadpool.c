@@ -97,6 +97,7 @@ int queue_pop(work_queue_t *q, conn_t *out)
 }
 
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *worker_thread(void *arg) {
     const worker_args_t *wa = arg;
     conn_t conn;
@@ -159,6 +160,7 @@ void *worker_thread(void *arg) {
 }
 
 
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *listener_thread(void *arg)
 {
     const listener_args_t *la = arg;
@@ -172,7 +174,7 @@ void *listener_thread(void *arg)
 
     if (listen_fd < 0) {
         l_error(log, "listener creation failed, thread exiting");
-        return NULL;   // 💥 THIS IS CRITICAL
+        return NULL;
     }
 
     if (la->is_tls) {
@@ -195,7 +197,7 @@ void *listener_thread(void *arg)
         /* Log accept() failure. */
         if (rv != 0) {
             l_warn(log, "accept() failed: %s", strerror(rv));
-            usleep(10000); // 10ms — prevents CPU spin
+            usleep(10000); /* 10ms — prevents CPU spin. */
             continue;
         }
 
