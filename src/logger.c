@@ -28,7 +28,6 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <libgen.h>
 #include <sys/uio.h>
 
 #include "util.h"
@@ -202,7 +201,7 @@ void *logger_thread(void *arg)
 }
 
 
-static void early_fatal(const char *msg)
+void early_fatal(const char *msg)
 {
     const int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
                   O_WRONLY | O_CREAT | O_APPEND, 0644);
@@ -225,44 +224,36 @@ static void early_fatal(const char *msg)
 
 void logger_init(void)
 {
+    char alog[PATH_MAX];
+    char elog[PATH_MAX];
+
+    /* Grab read lock to read config. */
+    THR_OK(pthread_rwlock_rdlock(&config_lock));
+    strncpy(alog, conf_data->access_log, PATH_MAX);
+    strncpy(elog, conf_data->event_log, PATH_MAX);
+    THR_OK(pthread_rwlock_unlock(&config_lock));
+
     /* Ensure path to logs exists. */
-    char *access_dir = strdup(conf_data.access_log);
-    if (access(dirname(access_dir), F_OK) != 0) {
-        free(access_dir);
-        access_dir = strdup(conf_data.access_log);
-        if (mkdir(dirname(conf_data.access_log), 0755) != 0) {
-            early_fatal("mkdir failed\n");
-        }
-    }
-    free(access_dir);
-    char *event_dir = strdup(conf_data.event_log);
-    if (access(dirname(event_dir), F_OK) != 0) {
-        free(event_dir);
-        event_dir = strdup(conf_data.event_log);
-        if (mkdir(dirname(conf_data.event_log), 0755) != 0) {
-            early_fatal("mkdir failed\n");
-        }
-    }
-    free(event_dir);
+    validate_path(alog);
+    validate_path(elog);
 
     /* Assign the log descriptors. */
-    logger.access_fd = open(conf_data.access_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logger.access_fd = open(alog, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (logger.access_fd < 0) {
-        early_fatal("opening access_log failed\n");
+        early_fatal("opening access log failed\n");
     }
-
-    logger.event_fd = open(conf_data.event_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    logger.event_fd = open(elog, O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (logger.event_fd < 0) {
-        early_fatal("opening event_log failed\n");
+        early_fatal("opening event log failed\n");
     }
 
     logger.shutdown = 0;
     logger.ring.head  = 0;
     logger.ring.tail  = 0;
 
-    pthread_mutex_init(&logger.ring.mutex, nullptr);
-    pthread_cond_init(&logger.ring.not_empty, nullptr);
-    pthread_cond_init(&logger.ring.not_full, nullptr);
+    THR_OK(pthread_mutex_init(&logger.ring.mutex, nullptr));
+    THR_OK(pthread_cond_init(&logger.ring.not_empty, nullptr));
+    THR_OK(pthread_cond_init(&logger.ring.not_full, nullptr));
 
     if (pthread_create(&logger.thread, nullptr, logger_thread, &logger) != 0) {
         early_fatal("creating logger thread failed\n");
@@ -272,19 +263,19 @@ void logger_init(void)
 
 void logger_shutdown(logger_t *log)
 {
-    pthread_mutex_lock(&log->ring.mutex);
+    THR_OK(pthread_mutex_lock(&log->ring.mutex));
     log->shutdown = 1;
 
     /* Wake up the logger thread so it can drain and exit. */
-    pthread_cond_signal(&log->ring.not_empty);
+    THR_OK(pthread_cond_signal(&log->ring.not_empty));
 
     /* Wake up ALL blocked worker threads so they don't hang forever. */
-    pthread_cond_broadcast(&log->ring.not_full);
+    THR_OK(pthread_cond_broadcast(&log->ring.not_full));
 
-    pthread_mutex_unlock(&log->ring.mutex);
+    THR_OK(pthread_mutex_unlock(&log->ring.mutex));
 
     /* Wait for the logger to finish draining the ring and exit. */
-    pthread_join(log->thread, nullptr);
+    THR_OK(pthread_join(log->thread, nullptr));
 
     close(log->access_fd);
     close(log->event_fd);
