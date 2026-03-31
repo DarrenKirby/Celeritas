@@ -38,6 +38,7 @@ void get_http_date_now(char *buf, size_t len);
 void get_http_date_time_t(char *buf, size_t len, time_t the_time);
 bool confirm_header_exists(const request_ctx_t* ctx, const char* header_name);
 const char* get_header_value(const request_ctx_t* ctx, const char* key);
+void validate_path(const char* path);
 
 void debug_print_request(request_ctx_t* ctx);
 void debug_print_response(request_ctx_t* ctx);

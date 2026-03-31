@@ -25,9 +25,10 @@
 
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h>
-#include <errno.h>
 #include <time.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 
 /* Rounds a 32-bit integer up to the next highest power of 2.
@@ -128,10 +129,122 @@ const char* get_header_value(const request_ctx_t* ctx, const char* key)
 }
 
 
+/* Helper function to format error messages before dying. */
+static void die_with_error(const char* context) {
+    char err_msg[512];
+    snprintf(err_msg, sizeof(err_msg), "%s: %s", context, strerror(errno));
+    early_fatal(err_msg);
+}
+
+
+/* Helper to mimic 'mkdir -p' safely with umask(0). */
+static void create_dir_recursive(const char* dir_path) {
+    char tmp[PATH_MAX];
+    if (snprintf(tmp, sizeof(tmp), "%s", dir_path) >= (int)sizeof(tmp)) {
+        early_fatal("Directory path too long");
+    }
+
+    char *p = tmp;
+    /* Skip the leading slash if absolute path. */
+    if (*p == '/') p++;
+
+    for (; *p; p++) {
+        if (*p == '/') {
+            *p = '\0'; /* Temporarily truncate string. */
+
+            /* Explicitly use 0755 to prevent world-writable directories. */
+            if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+                die_with_error("Failed to create intermediate directory");
+            }
+            *p = '/'; /* Restore slash. */
+        }
+    }
+
+    /* Create the final directory. */
+    if (mkdir(tmp, 0755) != 0 && errno != EEXIST) {
+        die_with_error("Failed to create parent directory");
+    }
+}
+
+
+void validate_path(const char* path)
+{
+    if (!path || *path == '\0') {
+        early_fatal("Invalid path: Path is NULL or empty");
+    }
+
+    struct stat st;
+
+    /* Check if the exact path exists. */
+    if (stat(path, &st) == 0) {
+        /* Requirement: It must be a file, not a directory. */
+        if (!S_ISREG(st.st_mode)) {
+            early_fatal("Path exists but is not a regular file");
+        }
+
+        /* It is readable/writable by calling process. */
+        if (access(path, R_OK | W_OK) != 0) {
+            die_with_error("File exists but lacks read/write permissions");
+        }
+
+        return; /* Success. */
+    }
+
+    /* If stat failed for a reason other than "does not exist", that's fatal. */
+    if (errno != ENOENT) {
+        die_with_error("Failed to stat path");
+    }
+
+    /* File does not exist past this point. */
+
+    char dir_path[PATH_MAX];
+    if (snprintf(dir_path, sizeof(dir_path), "%s", path) >= (int)sizeof(dir_path)) {
+        early_fatal("File path too long");
+    }
+
+    /* Isolate the parent directory path. */
+    char *last_slash = strrchr(dir_path, '/');
+    if (last_slash != NULL) {
+        if (last_slash == dir_path) {
+            dir_path[1] = '\0'; /* The parent is the root directory "/". */
+        } else {
+            *last_slash = '\0'; /* Truncate to get just the directory path. */
+        }
+
+        /* Check if the parent directory exists. */
+        struct stat dir_st;
+        if (stat(dir_path, &dir_st) == 0) {
+            if (!S_ISDIR(dir_st.st_mode)) {
+                early_fatal("Parent path exists but is not a directory");
+            }
+        } else {
+            if (errno == ENOENT) {
+                /* Create the path mkdir -p style. */
+                create_dir_recursive(dir_path);
+            } else {
+                die_with_error("Failed to stat parent directory");
+            }
+        }
+
+        /* Ensure calling process can create a new file there.
+         * W_OK allows creating a file, X_OK allows entering the directory. */
+        if (access(dir_path, W_OK | X_OK) != 0) {
+            die_with_error("Cannot create file in parent directory (insufficient permissions)");
+        }
+    } else {
+        /* No slash means the file is in the current working directory. */
+        if (access(".", W_OK | X_OK) != 0) {
+            die_with_error("Cannot create file in current directory (insufficient permissions)");
+        }
+    }
+    /* Everything successful, fall off the end. */
+}
+
+
 void debug_print_request(request_ctx_t* ctx)
 {
     l_debug(ctx->log, "Start request debug printout\n");
-    FILE* fd = fopen(conf_data.event_log, "a");
+    FILE* fd = fopen(conf_data->event_log, "a");
     fprintf(fd, "Request from %s; remote port %d\n", ctx->conn->remote_ip, ctx->conn->remote_port);
     fprintf(fd, " Method: %s\n", ctx->request.h1.method);
     fprintf(fd, "    URI: %s\n", ctx->request.h1.uri);
@@ -150,7 +263,7 @@ void debug_print_request(request_ctx_t* ctx)
 void debug_print_response(request_ctx_t* ctx)
 {
     l_debug(ctx->log, "Start response debug printout\n");
-    FILE* fd = fopen(conf_data.event_log, "a");
+    FILE* fd = fopen(conf_data->event_log, "a");
     fprintf(fd, "Status code: %d %s\n", ctx->status_code, http_status_to_string(ctx->status_code));
     fprintf(fd, "Method: %d\n", ctx->method);
     fprintf(fd, "Headers: (%d total)\n", ctx->response.header_count);
