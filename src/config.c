@@ -17,34 +17,101 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "config.h"
+
 #include "util.h"
+#include "config.h"
+#include "types.h"
+#include "logger.h"
+#include "threadpool.h"
 
 #include <string.h>
-#include <unistd.h>
+#include <stdlib.h>
+#include <pthread.h>
 
 
-config_data read_config(void)
+void load_config_defaults(config_data *cd)
 {
     const long ncpu = get_ncpu();
-    config_data cd;
-    cd.http_port = 8080;  /* Whilst testing. */
-    cd.https_port = 8443; /* Whilst testing. */
-    cd.min_threads = ncpu;
-    cd.max_threads = ncpu * 2;
-    cd.queue_depth = 256;
-    strncpy(cd.access_log, "../logs/access_log", PATH_MAX);
-    strncpy(cd.event_log, "../logs/event_log", PATH_MAX);
-    strncpy(cd.doc_root, "../www", PATH_MAX);
-    strncpy(cd.server_tok, "Celeritas/0.1", 15);
-    const pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-    cd.mutex = mtx;
-    cd.server_pid = -1;  /* This will be updated by getpid() call after daemonizing. */
-    cd.max_rx_header = 8192;
-    cd.max_tx_header = 8192;
-    cd.keepalive_timeout = 10;
-    return cd;
+
+    /* Start with some defaults that can be overridden by
+     * values in the config file, or passed on the CLI. */
+
+    cd->http_port = 8080;  /* Whilst testing. */
+    cd->https_port = 8443; /* Whilst testing. */
+    cd->min_threads = ncpu;
+    cd->max_threads = ncpu * 2;
+    cd->queue_depth = 256;
+    strncpy(cd->access_log, "../logs/access_log", PATH_MAX);
+    strncpy(cd->event_log, "../logs/event_log", PATH_MAX);
+    strncpy(cd->doc_root, "../www", PATH_MAX);
+    strncpy(cd->server_tok, "Celeritas/0.1", 15);
+    cd->server_pid = -1;  /* This will be updated by getpid() call after daemonizing. */
+    cd->max_rx_header = 8192;
+    cd->max_tx_header = 8192;
+    cd->keepalive_timeout = 10;
 }
+
+
+void init_config(void) {
+    /* Initialize the attribute object. */
+    pthread_rwlockattr_t attr;
+    if (pthread_rwlockattr_init(&attr) != 0) {
+        early_fatal("Failed to initialize rwlock attributes");
+    }
+
+    /* Set the writer-preference attribute (Linux/glibc only). */
+#if defined(__linux__)
+    pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+#endif
+
+    /* Initialize the actual lock using the configured attributes. */
+    if (pthread_rwlock_init(&config_lock, &attr) != 0) {
+        early_fatal("Failed to initialize configuration rwlock");
+    }
+
+    /* Destroy the attribute object immediately. */
+    pthread_rwlockattr_destroy(&attr);
+
+    /* Allocate the initial configuration structure. */
+    conf_data = calloc(1, sizeof(config_data));
+    if (!conf_data) {
+        early_fatal("Failed to allocate memory for configuration");
+    }
+    
+    load_config_defaults(conf_data);
+}
+
+
+void cleanup_config(void) 
+{
+    pthread_rwlock_destroy(&config_lock);
+    if (conf_data) {
+        free(conf_data);
+        conf_data = nullptr;
+    }
+}
+
+
+void reload_configuration()
+{
+    /* Do the slow work entirely outside the lock. */
+    config_data *new_config = malloc(sizeof(config_data));
+    load_config_defaults(new_config);
+    // if (!parse_and_validate_config_file("/etc/celeritas.conf", new_config)) {
+    //     free(new_config);
+    //     return; // Parsing failed, keep the old config
+    // }
+
+    /* ### Critical section start. ### */
+    THR_OK(pthread_rwlock_wrlock(&config_lock));
+    config_data *old_config = conf_data;
+    conf_data = new_config;
+    THR_OK(pthread_rwlock_unlock(&config_lock));
+    /* ### Critical section end. ### */
+
+    free(old_config);
+}
+
 
 /* Example config file format including default values
  * -------------------------------------------------- *
