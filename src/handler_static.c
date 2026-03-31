@@ -116,7 +116,7 @@ void handle_options(request_ctx_t *ctx)
 void handle_get_head(request_ctx_t* ctx)
 {
     char local_file[PATH_MAX];
-    resolve_path(conf_data.doc_root, ctx->request.h1.uri, local_file, PATH_MAX);
+    resolve_path(conf_data->doc_root, ctx->request.h1.uri, local_file, PATH_MAX);
 
     /* Stat the file for size and last modified. */
     struct stat sb;

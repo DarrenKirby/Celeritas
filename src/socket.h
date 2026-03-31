@@ -26,10 +26,6 @@
 #include "config.h"
 
 
-extern _Atomic int shutting_down;
-extern config_data conf_data;
-
-
 int create_listener(uint16_t port, logger_t *log);
 int accept_connection(int listen_fd, int is_tls, conn_t* conn);
 void demux_protocol(conn_t* conn);

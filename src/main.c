@@ -30,7 +30,8 @@
 #include <openssl/crypto.h>
 
 
-config_data conf_data;
+config_data *conf_data;
+pthread_rwlock_t config_lock;
 extern logger_t logger;
 _Atomic int shutting_down = 0;
 
@@ -45,9 +46,12 @@ int main(const int argc, char** argv)
     printf("OpenSSL built on:               %s\n", OpenSSL_version(OPENSSL_BUILT_ON));
     printf("OpenSSL platform:               %s\n", OpenSSL_version(OPENSSL_PLATFORM));
 
-    /* Read config, and populate conf struct.
+
+    /* Initialize config and config lock.
+     * Read config, populate conf struct.
      * TODO: override conf file settings with CLI args, if provided. */
-    conf_data = read_config();
+    init_config();
+    //read_config(conf_data);
 
     /* Get server name. */
     char *cmd;
@@ -71,7 +75,7 @@ int main(const int argc, char** argv)
     logger_init();
 
     /* Grab the server pid. */
-    conf_data.server_pid = getpid();
+    conf_data->server_pid = getpid();
 
     l_info(&logger, "server started");
     l_debug(&logger, "initialized logger thread");
@@ -86,7 +90,7 @@ int main(const int argc, char** argv)
     }
 
     /* Write the lockfile name to the conf struct. */
-    strncpy(conf_data.lock_file, lockfile, PATH_MAX);
+    strncpy(conf_data->lock_file, lockfile, PATH_MAX);
 
     static sig_handler_t sht;
     sht.logger = &logger;

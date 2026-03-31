@@ -28,9 +28,6 @@
 #include <fcntl.h>
 
 
-extern config_data conf_data;
-
-
 void resp_set_status(request_ctx_t* ctx, const int status)
 {
     ctx->status_code = status;
@@ -52,7 +49,7 @@ void resp_add_common_headers(request_ctx_t* ctx)
 {
     char now[30];
     get_http_date_now(now, 30);
-    resp_add_header(ctx, "Server", conf_data.server_tok);
+    resp_add_header(ctx, "Server", conf_data->server_tok);
     resp_add_header(ctx, "Date", now);
 }
 

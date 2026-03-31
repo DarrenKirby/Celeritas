@@ -144,7 +144,7 @@ void *worker_thread(void *arg) {
                 persistent = false;
             } else {
                 /* Set the socket timeout for the next request. */
-                set_socket_timeout(conn.fd, conf_data.keepalive_timeout);
+                set_socket_timeout(conn.fd, conf_data->keepalive_timeout);
             }
 
             request_finish:
@@ -211,10 +211,10 @@ void *listener_thread(void *arg)
 void worker_init(logger_t* log)
 {
     /* Get values from config. */
-    const uint16_t cap = conf_data.queue_depth;
-    const uint16_t N = conf_data.max_threads;
-    const uint16_t http_port = conf_data.http_port;
-    const uint16_t https_port = conf_data.https_port;
+    const uint16_t cap = conf_data->queue_depth;
+    const uint16_t N = conf_data->max_threads;
+    const uint16_t http_port = conf_data->http_port;
+    const uint16_t https_port = conf_data->https_port;
 
     /* Initialize the work queue. */
     l_debug(log, "initializing work queue");

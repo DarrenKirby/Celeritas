@@ -21,7 +21,6 @@
 #ifndef CELERITAS_THREADPOOL_H
 #define CELERITAS_THREADPOOL_H
 
-#include "socket.h"
 #include "logger.h"
 
 #include <pthread.h>
@@ -31,14 +30,11 @@
     do { \
         int rc = (func); \
         if (rc != 0) { \
-            FILE* fh = fopen(conf_data.event_log, "a"); \
+            FILE* fh = fopen(conf_data->event_log, "a"); \
             fprintf(fh, "%s:%d: %s failed with error %d\n", __FILE__, __LINE__, #func, rc); \
             abort(); \
         } \
     } while (0)
-
-
-//extern config_data conf_data;
 
 
 /* The work queue. */
@@ -76,7 +72,7 @@ typedef struct {
 
 /* This struct holds our worker threads and socket descriptors
  * so we can access them later for a clean shutdown. */
-typedef struct {
+struct server_t {
     pthread_t *workers;
     int n_workers;
 
@@ -87,7 +83,7 @@ typedef struct {
     int https_fd;
 
     work_queue_t *queue;
-} server_t;
+};
 
 
 void worker_init(logger_t* log);

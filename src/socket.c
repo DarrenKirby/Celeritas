@@ -57,14 +57,14 @@ int create_listener(const uint16_t port, logger_t *log)
         int yes = 1;
         setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
 
-        // Optional: allow IPv4 on IPv6 sockets (Linux-specific behaviour)
+        /* Allow IPv4 on IPv6 sockets (Linux-specific behaviour). */
         if (p->ai_family == AF_INET6) {
             int no = 0;
             setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, &no, sizeof(no));
         }
 
         if (bind(listen_fd, p->ai_addr, p->ai_addrlen) == 0) {
-            // success
+            /* Success. */
             break;
         }
 
@@ -88,28 +88,6 @@ int create_listener(const uint16_t port, logger_t *log)
 
     return listen_fd;
 }
-// int create_listener(uint16_t port, logger_t *log)
-// {
-//     const int fd = socket(AF_INET6, SOCK_STREAM, 0);
-//
-//     int yes = 1;
-//     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-//
-//     struct sockaddr_in6 addr = {0};
-//     addr.sin6_family = AF_INET6;
-//     addr.sin6_addr = in6addr_any;
-//     addr.sin6_port = htons(port);
-//
-//     const int ret = bind(fd, (struct sockaddr*)&addr, sizeof(addr));
-//     if (ret != 0) {
-//         l_error(log, "bind() failed: %s", strerror(errno));
-//         close(fd);
-//         return -1;
-//     }
-//     listen(fd, 128);
-//
-//     return fd;
-// }
 
 
 int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {

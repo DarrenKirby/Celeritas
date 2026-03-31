@@ -40,6 +40,13 @@ typedef struct request_ctx_t request_ctx_t;
 typedef struct kv_t kv_t;
 typedef struct http1_req_t http1_req_t;
 typedef struct h2_stream_t h2_stream_t;
+typedef struct server_t server_t;
+typedef struct config_data config_data;
+
+extern server_t server;
+extern pthread_rwlock_t config_lock;
+extern config_data *conf_data;
+extern _Atomic int shutting_down;
 
 
 typedef enum {
@@ -163,6 +170,9 @@ typedef enum {
     M_TRACE   = 1 << 7,
     M_INVALID = 1 << 8
 } http_method_t;
+
+
+
 
 
 struct log_entry_t {
