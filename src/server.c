@@ -18,6 +18,7 @@
 */
 
 #include "server.h"
+#include "types.h"
 #include "logger.h"
 #include "threadpool.h"
 
@@ -33,9 +34,6 @@
 #include <sys/stat.h>
 
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
-
-
-extern server_t server;
 
 
 void daemonize(void)
@@ -141,7 +139,7 @@ void* thr_sig_handler(void *arg)
         switch (sig_no) {
             case SIGHUP:
                 l_info(log, "server received SIGHUP");
-                reread_config(log);
+                reload_configuration();
                 break;
             case SIGTERM:
                 l_info(log, "server received SIGTERM");
@@ -150,16 +148,6 @@ void* thr_sig_handler(void *arg)
                 l_error(log, "unexpected signal: %d", sig_no);
         }
     }
-}
-
-
-void reread_config(logger_t* log)
-{
-    l_info(log, "Re-reading configuration file");
-
-    pthread_mutex_lock(&conf_data.mutex);
-    conf_data = read_config();
-    pthread_mutex_unlock(&conf_data.mutex);
 }
 
 
@@ -183,14 +171,14 @@ void server_shutdown(logger_t* log, const int status)
     /* First thing to do is stop the listener threads. */
     close(server.http_fd);
     close(server.https_fd);
-    pthread_join(server.http_listener, nullptr);
-    pthread_join(server.https_listener, nullptr);
+    THR_OK(pthread_join(server.http_listener, nullptr));
+    THR_OK(pthread_join(server.https_listener, nullptr));
 
     /* Wake all workers. */
-    pthread_mutex_lock(&server.queue->mutex);
+    THR_OK(pthread_mutex_lock(&server.queue->mutex));
     server.queue->shutting_down = 1;
-    pthread_cond_broadcast(&server.queue->not_empty);
-    pthread_mutex_unlock(&server.queue->mutex);
+    THR_OK(pthread_cond_broadcast(&server.queue->not_empty));
+    THR_OK(pthread_mutex_unlock(&server.queue->mutex));
 
     /* Shut down worker thread pool. */
     for (int i = 0; i < server.n_workers; i++) {
@@ -201,7 +189,10 @@ void server_shutdown(logger_t* log, const int status)
 
     /* Shut down logging thread. */
     logger_shutdown(log);
+    /* Clean up config. */
+    cleanup_config();
     /* Remove the runtime lockfile. */
-    unlink(conf_data.lock_file);
+    unlink(conf_data->lock_file);
+    /* See ya... */
     exit(status);
 }
