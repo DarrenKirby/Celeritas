@@ -96,13 +96,22 @@ int queue_pop(work_queue_t *q, conn_t *out)
     return 0;
 }
 
+// void *wait_room_thread(void *arg) {
+//     const worker_args_t *wr = arg;
+//     logger_t *log = wr->logger;
+//     work_queue_t *work_q = wr->work_queue;
+//     work_queue_t *wait_q = wr->wait_queue;
+//
+//     return NULL;
+// }
+
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *worker_thread(void *arg) {
     const worker_args_t *wa = arg;
     conn_t conn;
 
-    while (queue_pop(wa->queue, &conn) == 0) {
+    while (queue_pop(wa->work_queue, &conn) == 0) {
         bool persistent = true;
 
         /* Determine the HTTP version of the request.*/
@@ -144,7 +153,9 @@ void *worker_thread(void *arg) {
                 persistent = false;
             } else {
                 /* Set the socket timeout for the next request. */
+                THR_OK(pthread_rwlock_rdlock(&config_lock));
                 set_socket_timeout(conn.fd, conf_data->keepalive_timeout);
+                THR_OK(pthread_rwlock_unlock(&config_lock));
             }
 
             request_finish:
@@ -208,34 +219,65 @@ void *listener_thread(void *arg)
 }
 
 
-void worker_init(logger_t* log)
+void worker_init(logger_t* log, const char lockfile[])
 {
     /* Get values from config. */
-    const uint16_t cap = conf_data->queue_depth;
-    const uint16_t N = conf_data->max_threads;
+    THR_OK(pthread_rwlock_rdlock(&config_lock));
+    const uint16_t cap = conf_data->conn_queue_size;
+    const uint16_t N = conf_data->worker_threads;
     const uint16_t http_port = conf_data->http_port;
     const uint16_t https_port = conf_data->https_port;
+    THR_OK(pthread_rwlock_unlock(&config_lock));
 
     /* Initialize the work queue. */
     l_debug(log, "initializing work queue");
-    work_queue_t *queue = malloc(sizeof(work_queue_t));
-    if (!queue) {
-        l_error(log, "malloc failed");
+    work_queue_t *work_queue = malloc(sizeof(work_queue_t));
+    if (!work_queue) {
+        l_error(log, "malloc failed for work queue");
         server_shutdown(log, 1);
     }
 
-    queue->buf = nullptr;
+    work_queue->buf = nullptr;
 
-    if (queue_init(queue, cap) != 0) {
-        l_error(log, "queue_init failed");
+    if (queue_init(work_queue, cap) != 0) {
+        l_error(log, "queue_init failed for work queue");
     }
 
-    server.queue = queue;
+    /* Initialize the wait room queue. */
+    // l_debug(log, "initializing work queue");
+    // work_queue_t *wait_queue = malloc(sizeof(work_queue_t));
+    // if (!wait_queue) {
+    //     l_error(log, "malloc failed for wait queue");
+    //     server_shutdown(log, 1);
+    // }
+    //
+    // wait_queue->buf = nullptr;
+    //
+    // if (queue_init(wait_queue, cap) != 0) {
+    //     l_error(log, "queue_init failed for wait queue");
+    // }
+
+    server.work_queue = work_queue;
+    //server.wait_queue = wait_queue;
+    strncpy(server.lock_file, lockfile, PATH_MAX);
+
+    /* Set up args for the wait room thread. */
+    // static worker_args_t wr_args;
+    // wr_args.logger = log;
+    // wr_args.work_queue = work_queue;
+    // wr_args.wait_queue = wait_queue;
+    //
+    // /* Spawn the wait room thread. */
+    // l_debug(log, "initializing wait room thread");
+    // pthread_t wr_thread;
+    // pthread_create(&wr_thread, nullptr, wait_room_thread, &wr_args);
+    // server.wait_room_thread = wr_thread;
 
     /* Set up the args for the worker threads. */
     static worker_args_t w_args;
     w_args.logger = log;
-    w_args.queue = queue;
+    w_args.work_queue = work_queue;
+    //w_args.wait_queue = wait_queue;
 
     /* Spawn the workers... */
     l_debug(log, "spawning %d worker threads", N);
@@ -249,7 +291,7 @@ void worker_init(logger_t* log)
     /* Set up the args for the http listener thread. */
     static listener_args_t http_l_args;
     http_l_args.logger = log;
-    http_l_args.queue = queue;
+    http_l_args.queue = work_queue;
     http_l_args.port = http_port;
     http_l_args.is_tls = false;
 
@@ -262,7 +304,7 @@ void worker_init(logger_t* log)
     /* Set up the args for the https listener thread. */
     static listener_args_t https_l_args;
     https_l_args.logger = log;
-    https_l_args.queue = queue;
+    https_l_args.queue = work_queue;
     https_l_args.port = https_port;
     https_l_args.is_tls = true;
 

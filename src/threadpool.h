@@ -54,9 +54,11 @@ typedef struct {
 } work_queue_t;
 
 
-/* Argument struct for worker_thread. */
+
+/* Argument struct for worker_thread and wait_room_thread. */
 typedef struct {
-    work_queue_t *queue;
+    work_queue_t *work_queue;
+    work_queue_t *wait_queue;
     logger_t *logger;
 } worker_args_t;
 
@@ -73,19 +75,24 @@ typedef struct {
 /* This struct holds our worker threads and socket descriptors
  * so we can access them later for a clean shutdown. */
 struct server_t {
+    pid_t pid;
+    char lock_file[PATH_MAX];
+
     pthread_t *workers;
     int n_workers;
 
     pthread_t http_listener;
     pthread_t https_listener;
+    pthread_t wait_room_thread;
 
     int http_fd;
     int https_fd;
 
-    work_queue_t *queue;
+    work_queue_t *work_queue;
+    work_queue_t *wait_queue;
 };
 
 
-void worker_init(logger_t* log);
+void worker_init(logger_t* log, const char lockfile[]);
 
 #endif //CELERITAS_THREADPOOL_H
