@@ -24,35 +24,37 @@
 #include <stdint.h>
 #include <pthread.h>
 #include <limits.h>
-#include <sys/types.h>
 
 
+typedef struct logger_t logger_t;
 typedef struct config_data config_data;
+
 
 struct config_data {
     /* Administrative. */
     uint16_t http_port;        /* Plain HTTP listener port. */
     uint16_t https_port;       /* HTTPS listener port. */
-    char server_tok[15];       /* Server header value. */
-    pid_t server_pid;          /* The pid of the running server. */
+    char server_tok[20];       /* Server header value. */
     /* Security/DoS. */
+    uint16_t max_url_size;          /* Max length of the URL component of a request. */
     uint16_t max_rx_header;         /* Max limit for request header size. */
     uint16_t max_tx_header;         /* Max limit for response header size. */
     uint16_t keepalive_timeout;     /* Number of seconds to wait for a request before closing connection. */
+    bool dir_listing;               /* Enable directory listing for static handler. */
     /* Performance tuning. */
-    uint16_t queue_depth;        /* Max pending connections. */
-    uint16_t min_threads;        /* Minimum worker threads in pool. */
-    uint16_t max_threads;        /* Maximum worker threads in pool. */
+    uint16_t log_queue_size;        /* Max messages in log queue before dropping. */
+    uint16_t conn_queue_size;       /* Max pending connections. */
+    uint16_t worker_threads;        /* Initial number of worker threads in pool. */
     /* Filesystem locations. */
-    char access_log[PATH_MAX];   /* Path to the access log file. */
-    char event_log[PATH_MAX];    /* Path to the event log file. */
-    char lock_file[PATH_MAX];    /* The runtime lock file to stop multiple server instances. */
-    char doc_root[PATH_MAX];     /* The local directory from which to serve content. */
+    char access_log[PATH_MAX];      /* Path to the access log file. */
+    char event_log[PATH_MAX];       /* Path to the event log file. */
+    char doc_root[PATH_MAX];        /* The directory from which to serve content. */
+    char lock_file_path[PATH_MAX];  /* The directory in which to write the runtime lock file. */
 };
 
 
 void init_config(void);
 void cleanup_config(void);
-void reload_configuration(void);
+void reload_configuration(const logger_t* log);
 
 #endif //CELERITAS_CONFIG_H
