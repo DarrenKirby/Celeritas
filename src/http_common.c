@@ -22,7 +22,6 @@
 #include "types.h"
 #include "http1.h"
 #include "response.h"
-#include "socket.h"
 #include "logger.h"
 
 #include <unistd.h>
@@ -175,7 +174,7 @@ void send_response(request_ctx_t *ctx)
     const size_t header_len = resp_build_response(ctx, ctx->response.header_buffer, HEADER_BUFFER_SIZE);
 
     /* Send the headers. */
-    int res = write(ctx->conn->fd, ctx->response.header_buffer, header_len);
+    ssize_t res = write(ctx->conn->fd, ctx->response.header_buffer, header_len);
     if (res < 0) {
         /* write() call failed - not much we can do but log it. */
         l_error(ctx->log, "write() to socket failed: %s", strerror(errno));

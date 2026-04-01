@@ -19,18 +19,19 @@
 
 #include "handler_static.h"
 #include "types.h"
-#include "socket.h"
 #include "response.h"
 #include "util.h"
 #include "mime.h"
 #include "http_common.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <stdlib.h>
+
+#include "threadpool.h"
 
 
 /* Resolves a URI to a physical path on disk. */
@@ -71,7 +72,7 @@ void handle_error(request_ctx_t *ctx)
 
     /* Generate a simple HTML body based on the status code. */
     char *body = malloc(512);
-    int len = snprintf(body, 512,
+    const int len = snprintf(body, 512,
         "<html><head><title>%d %s</title></head>"
         "<body><h1>%d %s</h1><p>Celeritas Server</p></body></html>",
         ctx->status_code, http_status_to_string(ctx->status_code),
@@ -116,7 +117,14 @@ void handle_options(request_ctx_t *ctx)
 void handle_get_head(request_ctx_t* ctx)
 {
     char local_file[PATH_MAX];
-    resolve_path(conf_data->doc_root, ctx->request.h1.uri, local_file, PATH_MAX);
+    char doc_root[PATH_MAX];
+
+    /* Lock to get conf values. */
+    THR_OK(pthread_rwlock_rdlock(&config_lock));
+    strncpy(doc_root, conf_data->doc_root, PATH_MAX);
+    THR_OK(pthread_rwlock_unlock(&config_lock));
+
+    resolve_path(doc_root, ctx->request.h1.uri, local_file, PATH_MAX);
 
     /* Stat the file for size and last modified. */
     struct stat sb;
@@ -134,7 +142,7 @@ void handle_get_head(request_ctx_t* ctx)
     resp_add_common_headers(ctx);
     resp_add_header(ctx, "Content-Type", get_mime_type(local_file));
     resp_add_header(ctx, "Last-Modified", last_mod);
-    resp_add_header(ctx, "Content-Length", int_to_string(sb.st_size));
+    resp_add_header(ctx, "Content-Length", int_to_string((int)sb.st_size));
     resp_add_header(ctx, "Connection", "keep-alive");
     resp_add_header(ctx, "Content-Language", "en-CA");
 

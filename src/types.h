@@ -21,13 +21,11 @@
 #ifndef CELERITAS_TYPES_H
 #define CELERITAS_TYPES_H
 
-#include <stdio.h>
 #include <stdint.h>
 #include <pthread.h>
 #include <openssl/types.h>
 
 #define LOG_LINE_MAX  2048
-#define LOG_RING_SIZE 512   /* must be power of 2 for cheap modulo */
 #define HEADER_BUFFER_SIZE 8192
 #define CACHE_LINE 64
 
@@ -172,9 +170,6 @@ typedef enum {
 } http_method_t;
 
 
-
-
-
 struct log_entry_t {
     log_target_t target;
     size_t       len;
@@ -188,14 +183,16 @@ struct log_ring_t {
     alignas(CACHE_LINE) pthread_mutex_t mutex;
     pthread_cond_t  not_empty;                   /* logger sleeps on this. */
     pthread_cond_t  not_full;                    /* producers sleep on this if full. */
-    alignas(CACHE_LINE) log_entry_t entries[LOG_RING_SIZE];
+    alignas(CACHE_LINE) log_entry_t *entries;
 };
 
 
 struct logger_t {
     int        access_fd;   /* Access log file descriptor. */
     int        event_fd;    /* Error log file descriptor. */
-    log_ring_t ring;        /* The log entry ring buffer. */
+    int        server_pid;  /* The pid of the daemonized process. */
+    uint16_t   ring_size;   /* The size of the log ring buffer. */
+    log_ring_t *ring;       /* The log entry ring buffer. */
     pthread_t  thread;      /* The singleton logger thread ID. */
     int        shutdown;    /* Set to 1 by main thread to signal exit */
 };

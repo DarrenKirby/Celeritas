@@ -61,7 +61,7 @@ int read_http_headers(request_ctx_t* ctx)
 }
 
 
-int parse_http1(request_ctx_t *ctx, const char *buf, size_t len)
+int parse_http1(request_ctx_t *ctx, const char *buf, const size_t len)
 {
     const char *p = buf;
     const char *end = buf + len;

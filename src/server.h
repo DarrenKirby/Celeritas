@@ -37,5 +37,6 @@ int already_running(char* lockfile_name, logger_t* log);
 noreturn void server_shutdown(logger_t* log, int status);
 void *thr_sig_handler(void *arg);
 int lockfile(int fd);
+void resolve_config_path(int argc, char *argv[]);
 
 #endif //CELERITAS_SERVER_H

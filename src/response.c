@@ -21,11 +21,14 @@
 #include "http_common.h"
 #include "util.h"
 #include "config.h"
+#include "threadpool.h"
 
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <stdlib.h>
+
 
 
 void resp_set_status(request_ctx_t* ctx, const int status)
@@ -49,7 +52,9 @@ void resp_add_common_headers(request_ctx_t* ctx)
 {
     char now[30];
     get_http_date_now(now, 30);
+    THR_OK(pthread_rwlock_rdlock(&config_lock));
     resp_add_header(ctx, "Server", conf_data->server_tok);
+    THR_OK(pthread_rwlock_unlock(&config_lock));
     resp_add_header(ctx, "Date", now);
 }
 
