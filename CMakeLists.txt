@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(celeritas LANGUAGES C VERSION 0.0.1)
+project(celeritas LANGUAGES C VERSION 0.10.2)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -14,7 +14,7 @@ find_package(OpenSSL REQUIRED)
 message(STATUS "Found OpenSSL ${OPENSSL_VERSION}")
 
 # --- Build flags (compiler only, no linker flags here) ---
-option(DEBUG_BUILD "Enable debug CFLAGS" ON)
+option(DEBUG_BUILD "Enable debug CFLAGS" OFF)
 if(DEBUG_BUILD)
     set(CMAKE_C_FLAGS "-march=native -Wall -Wextra -Werror -O0 -g -D_GNU_SOURCE -fsanitize=address,undefined")
     message(STATUS "Building with debug symbols and sanitizers.")
