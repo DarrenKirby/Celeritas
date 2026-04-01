@@ -22,7 +22,6 @@
 
 #include <unistd.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,14 +76,14 @@ unsigned long get_tid(void)
 
 void log_access(request_ctx_t* ctx, const uint64_t latency)
 {
-    log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluus] - %s - tid: 0x%lx\n",
+    log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluμs] - %s - tid: 0x%lx\n",
     ctx->conn->remote_ip, l_format_datetime(), ctx->request.h1.method, ctx->request.h1.uri, ctx->request.h1.version,
     ctx->status_code, ctx->response.body_len, (unsigned long long)latency,
     confirm_header_exists(ctx, "User-Agent") ? get_header_value(ctx, "User-Agent") : "", get_tid());
 }
 
 
-void log_write(logger_t* log, const log_target_t target, const char *fmt, ...)
+void log_write(const logger_t* log, const log_target_t target, const char *fmt, ...)
 {
     log_entry_t entry;
 
@@ -96,36 +95,36 @@ void log_write(logger_t* log, const log_target_t target, const char *fmt, ...)
     va_end(args);
 
     /* Now touch shared state. */
-    THR_OK(pthread_mutex_lock(&log->ring.mutex));
+    THR_OK(pthread_mutex_lock(&log->ring->mutex));
 
     /* Pre-calculate where the tail will go next. */
-    const int next_tail = (log->ring.tail + 1) & (LOG_RING_SIZE - 1);
+    const int next_tail = (log->ring->tail + 1) & (log->ring_size - 1);
 
     /* Check if full. */
-    if (next_tail == log->ring.head) {
+    if (next_tail == log->ring->head) {
         if (target == LOG_TARGET_ACCESS) {
             /* Drop access logs under heavy load. */
-            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+            THR_OK(pthread_mutex_unlock(&log->ring->mutex));
             return;
         }
         /* Block event/error logs until the logger frees up space. */
-        while (next_tail == log->ring.head && !log->shutdown) {
-            THR_OK(pthread_cond_wait(&log->ring.not_full, &log->ring.mutex));
+        while (next_tail == log->ring->head && !log->shutdown) {
+            THR_OK(pthread_cond_wait(&log->ring->not_full, &log->ring->mutex));
         }
 
         /* If the thread woke up because of a shutdown, bail out. */
         if (log->shutdown) {
-            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+            THR_OK(pthread_mutex_unlock(&log->ring->mutex));
             return;
         }
     }
 
     entry.target = target;
-    log->ring.entries[log->ring.tail] = entry;
-    log->ring.tail = next_tail;
+    log->ring->entries[log->ring->tail] = entry;
+    log->ring->tail = next_tail;
 
-    THR_OK(pthread_cond_signal(&log->ring.not_empty));
-    THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+    THR_OK(pthread_cond_signal(&log->ring->not_empty));
+    THR_OK(pthread_mutex_unlock(&log->ring->mutex));
 }
 
 
@@ -138,31 +137,31 @@ void *logger_thread(void *arg)
         int batch_count = 0;
 
         /* ### Critical section start. ### */
-        THR_OK(pthread_mutex_lock(&log->ring.mutex));
+        THR_OK(pthread_mutex_lock(&log->ring->mutex));
 
         /* Sleep until there is something to write. */
-        while (log->ring.tail == log->ring.head && !log->shutdown) {
-            THR_OK(pthread_cond_wait(&log->ring.not_empty, &log->ring.mutex));
+        while (log->ring->tail == log->ring->head && !log->shutdown) {
+            THR_OK(pthread_cond_wait(&log->ring->not_empty, &log->ring->mutex));
         }
 
         /* If empty and shutting down, bail out */
-        if (log->ring.tail == log->ring.head && log->shutdown) {
-            THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+        if (log->ring->tail == log->ring->head && log->shutdown) {
+            THR_OK(pthread_mutex_unlock(&log->ring->mutex));
             break;
         }
 
         /* Grab up to BATCH_SIZE entries at once. */
-        while (log->ring.head != log->ring.tail && batch_count < BATCH_SIZE) {
-            local_batch[batch_count++] = log->ring.entries[log->ring.head];
-            log->ring.head = (log->ring.head + 1) & (LOG_RING_SIZE - 1);
+        while (log->ring->head != log->ring->tail && batch_count < BATCH_SIZE) {
+            local_batch[batch_count++] = log->ring->entries[log->ring->head];
+            log->ring->head = (log->ring->head + 1) & (log->ring_size - 1);
         }
 
         /* Wake up ANY workers blocked on a full queue, since we just cleared space. */
         if (batch_count > 0) {
-            THR_OK(pthread_cond_broadcast(&log->ring.not_full));
+            THR_OK(pthread_cond_broadcast(&log->ring->not_full));
         }
 
-        THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+        THR_OK(pthread_mutex_unlock(&log->ring->mutex));
         /* ### Critical section end. ### */
 
         /* Set up the iovec array to point to the local copies. */
@@ -203,7 +202,7 @@ void *logger_thread(void *arg)
 
 void early_fatal(const char *msg)
 {
-    const int fd = open("/Users/darrenkirby/code/celeritas/logs/startup_fail.log",
+    const int fd = open("./startup_fail.log",
                   O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         ssize_t rv = write(fd, msg, strlen(msg));
@@ -222,7 +221,7 @@ void early_fatal(const char *msg)
 }
 
 
-void logger_init(void)
+logger_t* logger_init(void)
 {
     char alog[PATH_MAX];
     char elog[PATH_MAX];
@@ -231,6 +230,7 @@ void logger_init(void)
     THR_OK(pthread_rwlock_rdlock(&config_lock));
     strncpy(alog, conf_data->access_log, PATH_MAX);
     strncpy(elog, conf_data->event_log, PATH_MAX);
+    const uint16_t log_buf_size = conf_data->log_queue_size;
     THR_OK(pthread_rwlock_unlock(&config_lock));
 
     /* Ensure path to logs exists. */
@@ -248,34 +248,53 @@ void logger_init(void)
     }
 
     logger.shutdown = 0;
-    logger.ring.head  = 0;
-    logger.ring.tail  = 0;
 
-    THR_OK(pthread_mutex_init(&logger.ring.mutex, nullptr));
-    THR_OK(pthread_cond_init(&logger.ring.not_empty, nullptr));
-    THR_OK(pthread_cond_init(&logger.ring.not_full, nullptr));
+    /* Allocate log ring buffer. */
+    logger.ring = calloc(1, sizeof(struct log_ring_t));
+    if (!logger.ring) {
+        early_fatal("failed to allocate log buffer\n");
+    }
+
+    /* Allocate array of log ring buffer entries. */
+    logger.ring->entries = calloc(1, sizeof(struct log_entry_t) * log_buf_size);
+    if (!logger.ring) {
+        early_fatal("failed to allocate log buffer\n");
+    }
+
+    logger.ring_size = log_buf_size;
+    logger.ring->head  = 0;
+    logger.ring->tail  = 0;
+
+    THR_OK(pthread_mutex_init(&logger.ring->mutex, nullptr));
+    THR_OK(pthread_cond_init(&logger.ring->not_empty, nullptr));
+    THR_OK(pthread_cond_init(&logger.ring->not_full, nullptr));
 
     if (pthread_create(&logger.thread, nullptr, logger_thread, &logger) != 0) {
         early_fatal("creating logger thread failed\n");
     }
+    return &logger;
 }
 
 
 void logger_shutdown(logger_t *log)
 {
-    THR_OK(pthread_mutex_lock(&log->ring.mutex));
+    THR_OK(pthread_mutex_lock(&log->ring->mutex));
     log->shutdown = 1;
 
     /* Wake up the logger thread so it can drain and exit. */
-    THR_OK(pthread_cond_signal(&log->ring.not_empty));
+    THR_OK(pthread_cond_signal(&log->ring->not_empty));
 
     /* Wake up ALL blocked worker threads so they don't hang forever. */
-    THR_OK(pthread_cond_broadcast(&log->ring.not_full));
+    THR_OK(pthread_cond_broadcast(&log->ring->not_full));
 
-    THR_OK(pthread_mutex_unlock(&log->ring.mutex));
+    THR_OK(pthread_mutex_unlock(&log->ring->mutex));
 
-    /* Wait for the logger to finish draining the ring and exit. */
+    /* Wait for the logger to finish draining the ring. */
     THR_OK(pthread_join(log->thread, nullptr));
+
+    /* Deallocate lg buffer and close the files. */
+    free(log->ring->entries);
+    free(log->ring);
 
     close(log->access_fd);
     close(log->event_fd);
