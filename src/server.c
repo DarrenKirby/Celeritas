@@ -32,8 +32,71 @@
 #include <stdlib.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <getopt.h>
 
+#define DEFAULT_CONFIG_PATH "/etc/celeritas/celeritas.conf"
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
+#define APPNAME "celeritas"
+#define APPVERSION "0.10.2"
+
+
+char active_config_path[PATH_MAX];
+
+
+static void show_help(void) {
+    printf("Usage: %s [OPTION] | [-c | --config-file=PATH] \n\n\
+Options:\n\
+    -c, --config-file\t\tpath to the celeritas configuration file\n\
+    -h, --help\t\tdisplay this help and exit\n\
+    -V, --version\tdisplay version information and exit\n\n\
+Report bugs to <darren@dragonbyte.ca>\n", APPNAME);
+}
+
+
+void resolve_config_path(int argc, char *argv[])
+{
+    int opt;
+    const char *cli_path = nullptr;
+
+    const struct option long_opts[] = {
+        {"help", 0, nullptr, 'h'},
+        {"version", 0, nullptr, 'V'},
+        {"config-file", 1, nullptr, 'c'},
+        {nullptr,0,nullptr,0}
+    };
+
+    while ((opt = getopt_long(argc, argv, "Vhc:", long_opts, nullptr)) != -1) {
+        switch(opt) {
+            case 'V':
+                printf("%s version %s\n", APPNAME, APPVERSION);
+                printf("compiled on %s at %s\n", __DATE__, __TIME__);
+                exit(EXIT_SUCCESS);
+            case 'h':
+                show_help();
+                exit(EXIT_SUCCESS);
+            case 'c':
+                cli_path = optarg;
+                break;
+            default:
+                show_help();
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    /* Apply hierarchy of precedence. */
+    if (cli_path != NULL) {
+        strncpy(active_config_path, cli_path, sizeof(active_config_path) - 1);
+    } else {
+        const char *env_path = getenv("CELERITAS_CONF");
+        if (env_path != NULL) {
+            strncpy(active_config_path, env_path, sizeof(active_config_path) - 1);
+        } else {
+            strncpy(active_config_path, DEFAULT_CONFIG_PATH, sizeof(active_config_path) - 1);
+        }
+    }
+
+    active_config_path[sizeof(active_config_path) - 1] = '\0';
+}
 
 
 void daemonize(void)
@@ -139,7 +202,7 @@ void* thr_sig_handler(void *arg)
         switch (sig_no) {
             case SIGHUP:
                 l_info(log, "server received SIGHUP");
-                reload_configuration();
+                reload_configuration(log);
                 break;
             case SIGTERM:
                 l_info(log, "server received SIGTERM");
@@ -174,25 +237,36 @@ void server_shutdown(logger_t* log, const int status)
     THR_OK(pthread_join(server.http_listener, nullptr));
     THR_OK(pthread_join(server.https_listener, nullptr));
 
+    /* Wake the wait room thread. */
+    THR_OK(pthread_mutex_lock(&server.wait_queue->mutex));
+    server.wait_queue->shutting_down = 1;
+    THR_OK(pthread_cond_signal(&server.wait_queue->not_empty));
+    THR_OK(pthread_mutex_unlock(&server.wait_queue->mutex));
+    THR_OK(pthread_join(server.wait_room_thread, nullptr));
+
     /* Wake all workers. */
-    THR_OK(pthread_mutex_lock(&server.queue->mutex));
-    server.queue->shutting_down = 1;
-    THR_OK(pthread_cond_broadcast(&server.queue->not_empty));
-    THR_OK(pthread_mutex_unlock(&server.queue->mutex));
+    THR_OK(pthread_mutex_lock(&server.work_queue->mutex));
+    server.work_queue->shutting_down = 1;
+    THR_OK(pthread_cond_broadcast(&server.work_queue->not_empty));
+    THR_OK(pthread_mutex_unlock(&server.work_queue->mutex));
 
     /* Shut down worker thread pool. */
     for (int i = 0; i < server.n_workers; i++) {
         pthread_join(server.workers[i], nullptr);
     }
 
+    free(server.work_queue);
+    free(server.wait_queue);
+    free(server.workers);
+
     l_info(log, "server shutdown complete");
 
     /* Shut down logging thread. */
     logger_shutdown(log);
+    /* Remove the runtime lockfile. */
+    unlink(server.lock_file);
     /* Clean up config. */
     cleanup_config();
-    /* Remove the runtime lockfile. */
-    unlink(conf_data->lock_file);
     /* See ya... */
     exit(status);
 }
