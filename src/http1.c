@@ -161,5 +161,9 @@ int parse_http1(request_ctx_t *ctx, const char *buf, const size_t len)
         }
     }
 
+    if (strcasecmp(ctx->request.h1.version, "HTTP/1.0") == 0) {
+        ctx->conn->protocol = PROTO_HTTP10;
+    }
+
     return 0;
 }
