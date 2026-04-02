@@ -60,7 +60,7 @@ char* l_priority(int priority);
 unsigned long get_tid(void);
 void early_fatal(const char *msg);
 void log_write(const logger_t* log, log_target_t target, const char *fmt, ...);
-void log_access(request_ctx_t* ctx, uint64_t latency);
+void log_access(request_ctx_t* ctx);
 
 
 #endif //CELERITAS_LOGGER_H

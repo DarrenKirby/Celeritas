@@ -54,7 +54,7 @@ void validate_request(request_ctx_t *ctx)
     }
 
     /* Check for Host header. */
-    if (!confirm_header_exists(ctx, "Host")) {
+    if (ctx->conn->protocol != PROTO_HTTP10 && !confirm_header_exists(ctx, "Host")) {
         resp_set_status(ctx, SC_400_BAD_REQUEST);
         l_warn(ctx->log, "request does not contain Host header");
         return;

@@ -74,8 +74,9 @@ unsigned long get_tid(void)
 }
 
 
-void log_access(request_ctx_t* ctx, const uint64_t latency)
+void log_access(request_ctx_t* ctx)
 {
+    const uint64_t latency = get_now_us() - ctx->start_time;
     log_write(ctx->log, LOG_TARGET_ACCESS, "%s - - [%s]  \"%s %s %s\" %d %d [%lluμs] - %s - tid: 0x%lx\n",
     ctx->conn->remote_ip, l_format_datetime(), ctx->request.h1.method, ctx->request.h1.uri, ctx->request.h1.version,
     ctx->status_code, ctx->response.body_len, (unsigned long long)latency,

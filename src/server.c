@@ -255,18 +255,21 @@ void server_shutdown(logger_t* log, const int status)
         pthread_join(server.workers[i], nullptr);
     }
 
+    /**/
     free(server.work_queue);
     free(server.wait_queue);
     free(server.workers);
+
+    /* Remove the runtime lockfile. */
+    unlink(server.lock_file);
+    /* Clean up config. */
+    cleanup_config();
 
     l_info(log, "server shutdown complete");
 
     /* Shut down logging thread. */
     logger_shutdown(log);
-    /* Remove the runtime lockfile. */
-    unlink(server.lock_file);
-    /* Clean up config. */
-    cleanup_config();
+
     /* See ya... */
     exit(status);
 }

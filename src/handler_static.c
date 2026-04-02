@@ -83,9 +83,6 @@ void handle_error(request_ctx_t *ctx)
     ctx->response.body_len = len;
 
     resp_add_header(ctx, "Content-Length", int_to_string(len));
-
-    /* NOTE: Because this is heap allocated, cleanup_request_resources
-     * needs to know to free() it instead of munmap() it! */
 }
 
 
