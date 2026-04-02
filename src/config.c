@@ -221,6 +221,8 @@ void load_config_defaults(config_data *cd)
     strncpy(cd->doc_root, "/var/www/html", PATH_MAX);
     strncpy(cd->lock_file_path, "/var/run/", PATH_MAX);
     strncpy(cd->server_tok, "Celeritas/0.10.2", 20);
+    strncpy(cd->tls_cert_path, "/etc/ssl/celeritas.crt", PATH_MAX);
+    strncpy(cd->tls_key_path, "/etc/ssl/celeritas.key", PATH_MAX);
     cd->max_rx_header = 8192;
     cd->max_tx_header = 8192;
     cd->max_url_size = 2048;

@@ -41,6 +41,8 @@ struct config_data {
     uint16_t max_tx_header;         /* Max limit for response header size. */
     uint16_t keepalive_timeout;     /* Number of seconds to wait for a request before closing connection. */
     bool dir_listing;               /* Enable directory listing for static handler. */
+    char tls_cert_path[PATH_MAX];   /* Path to the TLS/SSL server certificate. */
+    char tls_key_path[PATH_MAX];    /* Path to the TLS/SSL server key. */
     /* Performance tuning. */
     uint16_t log_queue_size;        /* Max messages in log queue before dropping. */
     uint16_t conn_queue_size;       /* Max pending connections. */
