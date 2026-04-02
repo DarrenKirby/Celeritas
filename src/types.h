@@ -40,6 +40,9 @@ typedef struct http1_req_t http1_req_t;
 typedef struct h2_stream_t h2_stream_t;
 typedef struct server_t server_t;
 typedef struct config_data config_data;
+typedef struct io_watcher_t io_watcher_t;
+typedef struct io_event_t io_event_t;
+typedef struct conn_pool_t conn_pool_t;
 
 extern server_t server;
 extern pthread_rwlock_t config_lock;
@@ -126,6 +129,7 @@ typedef enum {
 
 typedef enum {
     PROTO_UNKNOWN,
+    PROTO_HTTP10,
     PROTO_HTTP11,
     PROTO_HTTP2
 } protocol_t;
@@ -168,6 +172,24 @@ typedef enum {
     M_TRACE   = 1 << 7,
     M_INVALID = 1 << 8
 } http_method_t;
+
+
+struct io_watcher_t {
+    int fd;
+};
+
+
+struct io_event_t {
+    void *userdata;
+    int   is_error;
+} ;
+
+
+struct conn_pool_t {
+    conn_t *items;
+    size_t count;    /* Using count for unsigned length. */
+    size_t capacity; /* The user-configured max. */
+};
 
 
 struct log_entry_t {
@@ -255,12 +277,13 @@ struct request_ctx_t {
 
 
 struct conn_t {
-    int fd;                /* Socket file descriptor. */
-    uint8_t is_tls;        /* 0: http; 1: https */
-    char remote_ip[46];    /* IPv4 or IPv6 address string. */
-    uint16_t remote_port;  /* Client port. */
-    SSL *ssl;              /* NULL for plain connections. */
-    protocol_t protocol;   /* HTTP/1.1 HTTP/2 or Unknown. */
+    int fd;                    /* Socket file descriptor. */
+    uint8_t is_tls;            /* 0: http; 1: https */
+    char remote_ip[46];        /* IPv4 or IPv6 address string. */
+    uint16_t remote_port;      /* Client port. */
+    SSL *ssl;                  /* NULL for plain connections. */
+    protocol_t protocol;       /* HTTP/1.1 HTTP/2 or Unknown. */
+    time_t keepalive_deadline; /* An absolute value denoting when the connection times out. */
 };
 
 
