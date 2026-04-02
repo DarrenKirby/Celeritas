@@ -28,6 +28,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include "util.h"
+
 
 #define UPGRADE_REQUIRED 1
 
@@ -124,6 +126,11 @@ int process_ingress(request_ctx_t *ctx)
             case -3:
                 ctx->status_code = SC_431_REQUEST_HEADER_FIELDS_TOO_LARGE;
                 return -1;
+            /* Client closed connection. */
+            case -2:
+                /* Don't set HTTP error code, just return
+                 * so the connection is silently closed. */
+                return -1;
             /* Socket error - set to internal server error. */
             case -1:
                 ctx->status_code = SC_500_INTERNAL_SERVER_ERROR;
@@ -204,6 +211,13 @@ void send_response(request_ctx_t *ctx)
 
 bool should_keep_alive(const request_ctx_t *ctx)
 {
+    /* If client sent a Connection: close header... */
+    if (confirm_header_exists(ctx, "Connection")) {
+        if (strcmp("close", get_header_value(ctx, "Connection")) == 0) {
+            return false;
+        }
+    }
+
     /* If we sent a "Connection: close" header (e.g. in handle_error), don't keep alive. */
     for (int i = 0; i < ctx->response.header_count; i++) {
         if (strcasecmp(ctx->response.headers[i].key, "Connection") == 0) {
