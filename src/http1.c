@@ -20,9 +20,11 @@
 
 #include "types.h"
 #include "logger.h"
+#include "http_common.h"
 
 #include <string.h>
 #include <errno.h>
+#include <poll.h>
 #include <sys/socket.h>
 
 #define MAX_HEADER_SIZE 8192
@@ -30,34 +32,57 @@
 
 int read_http_headers(request_ctx_t* ctx)
 {
-    size_t received = 0;
     const int fd = ctx->conn->fd;
     char* buf = ctx->header_buffer;
 
-    while (received < MAX_HEADER_SIZE - 1) {
-        /* Read into the buffer starting at the first 'empty' spot. */
-        const ssize_t n = recv(fd, buf + received, MAX_HEADER_SIZE - 1 - received, 0);
+    /* Strictly use header_bytes_read as the offset. */
+    while (ctx->header_bytes_read < MAX_HEADER_SIZE - 1) {
+
+        const ssize_t n = conn_read(ctx->conn, buf + ctx->header_bytes_read,
+                                    MAX_HEADER_SIZE - 1 - ctx->header_bytes_read);
 
         if (n < 0) {
-            /* Interrupted by signal, try again. */
+            /* Interrupted by signal, safely try again. */
             if (errno == EINTR) continue;
-            /* Actual socket error. */
-            return -1;
-        }
-        /* Client closed connection prematurely. */
-        if (n == 0) return -2;
 
-        received += n;
-        buf[received] = '\0';
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* The socket is temporarily empty. We must wait for more data.
+                 * Use poll() to sleep this thread until data arrives or 5 seconds pass. */
+                struct pollfd pfd;
+                pfd.fd = fd;
+                pfd.events = POLLIN;
+
+                /* 5000 ms timeout. If a client takes longer than 5 seconds
+                 * just to send HTTP headers, drop them. */
+                const int p_res = poll(&pfd, 1, 5000);
+
+                if (p_res == 0) return -4; /* Timeout (slow client). */
+                if (p_res < 0) return -1;  /* Poll failed. */
+
+                /* Data is ready. Loop around and try conn_read again. */
+                continue;
+            }
+            return -1; /* Actual socket error. */
+        }
+
+        if (n == 0) return -2; /* Client closed connection prematurely. */
+
+        ctx->header_bytes_read += n;
+        buf[ctx->header_bytes_read] = '\0';
 
         /* Check if we read the end-of-header marker. */
-        if (strstr(buf, "\r\n\r\n")) {
-            ctx->header_buffer_size = received;
-            return 0;
+        char *eoh = strstr(buf, "\r\n\r\n");
+        if (eoh) {
+            /* Track the exact boundary so we don't lose the body. */
+            const size_t total_header_length = (eoh - buf) + 4;
+            ctx->body_overshoot_bytes = ctx->header_bytes_read - total_header_length;
+            ctx->body_overshoot_start = (ctx->body_overshoot_bytes > 0) ? (eoh + 4) : nullptr;
+            ctx->header_bytes_read = total_header_length;
+
+            return 0; /* Header complete. */
         }
     }
-    /* Header too large (Potential DoS). */
-    return -3;
+    return -3; /* Header too large (Potential DoS). */
 }
 
 
