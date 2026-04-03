@@ -219,8 +219,8 @@ void load_config_defaults(config_data *cd)
     cd->worker_threads = ncpu * 2;
     cd->conn_queue_size = 256;
     cd->log_queue_size = 256;
-    strncpy(cd->access_log, "/var/log/celeritas/logs/access_log", PATH_MAX);
-    strncpy(cd->event_log, "/var/log/celeritas/logs/event_log", PATH_MAX);
+    strncpy(cd->access_log, "/var/log/celeritas/access_log", PATH_MAX);
+    strncpy(cd->event_log, "/var/log/celeritas/event_log", PATH_MAX);
     strncpy(cd->doc_root, "/var/www/html", PATH_MAX);
     strncpy(cd->lock_file_path, "/var/run/", PATH_MAX);
     strncpy(cd->server_tok, "Celeritas/0.10.2", 20);
