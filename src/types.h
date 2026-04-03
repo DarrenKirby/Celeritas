@@ -248,7 +248,9 @@ struct request_ctx_t {
 
     /* Buffer for the socket read. */
     char header_buffer[HEADER_BUFFER_SIZE];
-    size_t header_buffer_size;
+    size_t header_bytes_read;
+    size_t body_overshoot_bytes;
+    char* body_overshoot_start;
 
     /* Pipeline State. */
     int status_code;        /* Final HTTP status code. */
