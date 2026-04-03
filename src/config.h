@@ -25,6 +25,8 @@
 #include <pthread.h>
 #include <limits.h>
 
+#define MAX_NAME_LEN 256
+
 
 typedef struct logger_t logger_t;
 typedef struct config_data config_data;
@@ -35,6 +37,8 @@ struct config_data {
     uint16_t http_port;        /* Plain HTTP listener port. */
     uint16_t https_port;       /* HTTPS listener port. */
     char server_tok[20];       /* Server header value. */
+    char server_user[MAX_NAME_LEN];
+    char server_group[MAX_NAME_LEN];
     /* Security/DoS. */
     uint16_t max_url_size;          /* Max length of the URL component of a request. */
     uint16_t max_rx_header;         /* Max limit for request header size. */
@@ -60,3 +64,37 @@ void cleanup_config(void);
 void reload_configuration(const logger_t* log);
 
 #endif //CELERITAS_CONFIG_H
+
+/* Example config file format including default values
+ * -------------------------------------------------- *
+
+# Ports
+http_port = 80
+https_port = 443
+
+# Threads
+worker_threads = 12
+
+# Paths
+access_log = /var/log/celeritas/access_log
+event_log = /var/log/celeritas/event_log
+lock_file_path = /var/run/
+doc_root = /var/www/html/
+tls_cert_path = /etc/ssl/celeritas.crt
+tls_key_path = /etc/ssl/celeritas.key
+
+# Limits
+max_rx_header_size = 8192
+max_tx_header_size = 8192
+max_url_size = 2048
+keepalive_timeout = 10
+
+# Queue sizes (will be rounded up to the next power of 2)
+log_queue_size = 512
+connection_queue_size = 512
+
+# User/group
+server_user = www
+server_group = www
+
+ * ----------------------------------------------------- */

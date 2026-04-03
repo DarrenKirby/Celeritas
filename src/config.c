@@ -17,7 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "util.h"
 #include "config.h"
 #include "types.h"
@@ -53,19 +52,23 @@ typedef struct {
 
 /* The authoritative map of configuration keys to struct fields. */
 static const config_mapping_t cfg_map[] = {
-    {"http_port",          CFG_UINT16, offsetof(config_data, http_port), 0},
-    {"https_port",         CFG_UINT16, offsetof(config_data, https_port), 0},
-    {"worker_threads",     CFG_UINT16, offsetof(config_data, worker_threads), 0},
-    {"max_url_size",       CFG_UINT16, offsetof(config_data, max_url_size), 0},
-    {"max_rx_header_size", CFG_UINT16, offsetof(config_data, max_rx_header), 0},
-    {"max_tx_header_size", CFG_UINT16, offsetof(config_data, max_tx_header), 0},
-    {"dir_listing",        CFG_BOOL,   offsetof(config_data, dir_listing), 0},
-    {"access_log",         CFG_STRING, offsetof(config_data, access_log), PATH_MAX},
-    {"event_log",          CFG_STRING, offsetof(config_data, event_log), PATH_MAX},
-    {"doc_root",           CFG_STRING, offsetof(config_data, doc_root), PATH_MAX},
-    {"lock_file_path",     CFG_STRING, offsetof(config_data, lock_file_path), PATH_MAX},
-    {"log_queue_size",     CFG_UINT16, offsetof(config_data, log_queue_size), 0},
+    {"http_port",          CFG_UINT16, offsetof(config_data, http_port),       0},
+    {"https_port",         CFG_UINT16, offsetof(config_data, https_port),      0},
+    {"worker_threads",     CFG_UINT16, offsetof(config_data, worker_threads),  0},
+    {"max_url_size",       CFG_UINT16, offsetof(config_data, max_url_size),    0},
+    {"max_rx_header_size", CFG_UINT16, offsetof(config_data, max_rx_header),   0},
+    {"max_tx_header_size", CFG_UINT16, offsetof(config_data, max_tx_header),   0},
+    {"dir_listing",        CFG_BOOL,   offsetof(config_data, dir_listing),     0},
+    {"access_log",         CFG_STRING, offsetof(config_data, access_log),      PATH_MAX},
+    {"event_log",          CFG_STRING, offsetof(config_data, event_log),       PATH_MAX},
+    {"doc_root",           CFG_STRING, offsetof(config_data, doc_root),        PATH_MAX},
+    {"lock_file_path",     CFG_STRING, offsetof(config_data, lock_file_path),  PATH_MAX},
+    {"tls_cert_path",      CFG_STRING, offsetof(config_data, tls_cert_path),   PATH_MAX},
+    {"tls_key_path",       CFG_STRING, offsetof(config_data, tls_key_path),    PATH_MAX},
+    {"log_queue_size",     CFG_UINT16, offsetof(config_data, log_queue_size),  0},
     {"conn_queue_size",    CFG_UINT16, offsetof(config_data, conn_queue_size), 0},
+    {"server_user",        CFG_STRING, offsetof(config_data, server_user),     MAX_NAME_LEN},
+    {"server_group",       CFG_STRING, offsetof(config_data, server_group),    MAX_NAME_LEN},
 };
 
 #define CFG_MAP_SIZE (sizeof(cfg_map) / sizeof(cfg_map[0]))
@@ -223,6 +226,8 @@ void load_config_defaults(config_data *cd)
     strncpy(cd->server_tok, "Celeritas/0.10.2", 20);
     strncpy(cd->tls_cert_path, "/etc/ssl/celeritas.crt", PATH_MAX);
     strncpy(cd->tls_key_path, "/etc/ssl/celeritas.key", PATH_MAX);
+    strncpy(cd->server_user, "www", MAX_NAME_LEN);
+    strncpy(cd->server_group, "www", MAX_NAME_LEN);
     cd->max_rx_header = 8192;
     cd->max_tx_header = 8192;
     cd->max_url_size = 2048;
@@ -294,32 +299,3 @@ void reload_configuration(const logger_t* log)
 
     free(old_config);
 }
-
-
-/* Example config file format including default values
- * -------------------------------------------------- *
-
-# Ports
-http_port = 80
-https_port = 443
-
-# Threads
-worker_threads = 12
-
-# Paths
-access_log = /var/log/celeritas/access_log
-event_log = /var/log/celeritas/event_log
-lock_file_path = /var/run/
-doc_root = /var/www/html/
-
-# Limits
-max_rx_header_size = 8192
-max_tx_header_size = 8192
-max_url_size = 2048
-keepalive_timeout = 10
-
-# Queue sizes (will be rounded up to the next power of 2)
-log_queue_size = 512
-connection_queue_size = 512
-
- * ----------------------------------------------------- */
