@@ -21,15 +21,15 @@
 #ifndef CELERITAS_SOCKET_H
 #define CELERITAS_SOCKET_H
 
-
 #include "types.h"
 #include "config.h"
 
 
-int create_listener(uint16_t port, logger_t *log);
-int accept_connection(int listen_fd, int is_tls, conn_t* conn);
+int create_listener(uint16_t port);
+int accept_connection(logger_t *log, int listen_fd, int is_tls, conn_t* conn);
 void demux_protocol(conn_t* conn);
 void set_socket_timeout(int fd, int seconds);
 void close_connection(const conn_t* conn);
+int perform_tls_handshake(const conn_t *conn);
 
 #endif //CELERITAS_SOCKET_H

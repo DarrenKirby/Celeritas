@@ -22,27 +22,75 @@
 #include "logger.h"
 
 #include <unistd.h>
-#include <errno.h>
+#include <math.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <netdb.h>
+#include <openssl/err.h>
+#include <poll.h>
 
 
-int create_listener(const uint16_t port, logger_t *log)
+extern SSL_CTX *ssl_ctx;
+
+
+/* Performs the TLS handshake to initialize
+ * TLS/SSL connections. */
+int perform_tls_handshake(const conn_t *conn)
+{
+    while (1) {
+        const int ret = SSL_accept(conn->ssl);
+
+        /* Handshake complete. */
+        if (ret == 1) {
+            return 0;
+        }
+
+        const int err = SSL_get_error(conn->ssl, ret);
+
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            /* The non-blocking socket is starving. Sleep until the client
+             * sends the next piece of the cryptographic handshake. */
+            struct pollfd pfd;
+            pfd.fd = conn->fd;
+
+            /* Listen for whatever OpenSSL told us it needs. */
+            pfd.events = (err == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+
+            /* 5000ms timeout to prevent Slowloris handshake attacks. */
+            int p_res = poll(&pfd, 1, 5000);
+
+            if (p_res == 0) return -1; /* Timeout: client took too long. */
+            if (p_res < 0) {
+                if (errno == EINTR) continue; /* Interrupted, try again. */
+                return -1; /* Actual OS poll error. */
+            }
+
+            /* Loop around and let SSL_accept try again. */
+            continue;
+        }
+
+        /* If here, it's a fatal TLS protocol error. */
+        return -1;
+    }
+}
+
+
+/* Calls socket(), bind(), and listen() on the specified port. */
+int create_listener(const uint16_t port)
 {
     char port_str[6];
     snprintf(port_str, sizeof(port_str), "%u", port);
 
     struct addrinfo hints = {0}, *res = nullptr;
-    hints.ai_family = AF_UNSPEC;        // IPv4 or IPv6
+    hints.ai_family = AF_UNSPEC;        /* IPv4 or IPv6. */
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;        // for bind()
+    hints.ai_flags = AI_PASSIVE;        /* For bind() */
 
-    int rv = getaddrinfo(nullptr, port_str, &hints, &res);
+    const int rv = getaddrinfo(nullptr, port_str, &hints, &res);
     if (rv != 0) {
-        l_error(log, "getaddrinfo() failed: %s", gai_strerror(rv));
+        fprintf(stderr, "getaddrinfo() failed: %s", gai_strerror(rv));
         return -1;
     }
 
@@ -68,7 +116,7 @@ int create_listener(const uint16_t port, logger_t *log)
             break;
         }
 
-        l_warn(log, "bind() failed: %s", strerror(errno));
+        fprintf(stderr, "bind() failed: %s", strerror(errno));
         close(listen_fd);
         listen_fd = -1;
     }
@@ -76,12 +124,12 @@ int create_listener(const uint16_t port, logger_t *log)
     freeaddrinfo(res);
 
     if (listen_fd < 0) {
-        l_error(log, "failed to bind to port %u", port);
+        fprintf(stderr, "failed to bind to port %u", port);
         return -1;
     }
 
     if (listen(listen_fd, 128) != 0) {
-        l_error(log, "listen() failed: %s", strerror(errno));
+        fprintf(stderr, "listen() failed: %s", strerror(errno));
         close(listen_fd);
         return -1;
     }
@@ -90,7 +138,9 @@ int create_listener(const uint16_t port, logger_t *log)
 }
 
 
-int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {
+/* Used by the listener threads to accept connections on
+ * their assigned ports. */
+int accept_connection(logger_t *log, const int listen_fd, const int is_tls, conn_t* conn) {
     struct sockaddr_storage addr;
     socklen_t len = sizeof(addr);
 
@@ -98,8 +148,8 @@ int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {
     if (fd < 0) {
         /* Suppress logging error if shutting down. */
         if (shutting_down) return 0;
-        const int rv = errno;
-        return rv;
+        l_error(log, "accept() failed: %s", strerror(errno));
+        return fd;
     }
 
     conn->fd = fd;
@@ -116,14 +166,31 @@ int accept_connection(const int listen_fd, const int is_tls, conn_t* conn) {
         conn->remote_port = ntohs(a->sin6_port);
     }
 
-    /* Just set to null for now, worker handles handshake. */
-    conn->ssl = nullptr;
+    if (conn->is_tls) {
+        /* Initialize SSL struct. */
+        conn->ssl = SSL_new(ssl_ctx);
+        if (conn->ssl == nullptr) {
+            l_error(log, "SSL_new() failed");
+            return -1;
+        }
+
+        /* Bind the raw socket to the SSL object. */
+        if (SSL_set_fd(conn->ssl, conn->fd) != 1) {
+            l_error(log, "SSL_set_fd() failed");
+            return -1;
+        }
+    } else {
+        conn->ssl = nullptr;
+    }
+
     /* Set to unknown on new connection. */
     conn->protocol = PROTO_UNKNOWN;
     return 0;
 }
 
 
+/* Attempts to sniff out an HTTP/2 connection preface,
+ * else defaults the protocol to HTTP/1.1. */
 void demux_protocol(conn_t* conn)
 {
     char peek_buf[24];
@@ -146,6 +213,7 @@ void demux_protocol(conn_t* conn)
 }
 
 
+/* Sets a scket timeout on the passed file descriptor. */
 void set_socket_timeout(const int fd, const int seconds)
 {
     struct timeval tv;
@@ -155,6 +223,7 @@ void set_socket_timeout(const int fd, const int seconds)
 }
 
 
+/* Closes the socket and thus closes the passed connection. */
 void close_connection(const conn_t* conn)
 {
     close(conn->fd);
