@@ -21,13 +21,16 @@
 #ifndef CELERITAS_HTTP_COMMON_H
 #define CELERITAS_HTTP_COMMON_H
 
-typedef struct request_ctx_t request_ctx_t;
+#include "types.h"
 
 
+ssize_t conn_read(const conn_t *conn, void *buf, size_t count);
+ssize_t conn_write(const conn_t *conn, const void *buf, size_t count);
 const char* http_status_to_string(int status_code);
 int process_ingress(request_ctx_t *ctx);
 void route_request(request_ctx_t *ctx);
 void send_response(request_ctx_t *ctx);
 bool should_keep_alive(const request_ctx_t *ctx);
+
 
 #endif //CELERITAS_HTTP_COMMON_H

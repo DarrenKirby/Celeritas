@@ -23,12 +23,11 @@
 #include "http1.h"
 #include "response.h"
 #include "logger.h"
+#include "util.h"
 
 #include <unistd.h>
-#include <string.h>
 #include <errno.h>
-
-#include "util.h"
+#include <openssl/ssl.h>
 
 
 #define UPGRADE_REQUIRED 1
@@ -128,6 +127,8 @@ int process_ingress(request_ctx_t *ctx)
                 return -1;
             /* Client closed connection. */
             case -2:
+                /* DoS attempt ... purposely slow client. */
+            case -4:
                 /* Don't set HTTP error code, just return
                  * so the connection is silently closed. */
                 return -1;
@@ -147,9 +148,9 @@ int process_ingress(request_ctx_t *ctx)
         return -1;
     }
 
-    const int p_status = parse_http1(ctx, ctx->header_buffer, ctx->header_buffer_size);
+    const int p_status = parse_http1(ctx, ctx->header_buffer, ctx->header_bytes_read);
     if (p_status == UPGRADE_REQUIRED) {
-        // Handle h2c logic here later
+        /* TODO: Handle h2c logic here later. */
         ctx->status_code = SC_101_SWITCHING_PROTOCOLS;
         return -1;
     }
@@ -175,13 +176,79 @@ void route_request(request_ctx_t *ctx)
 }
 
 
+ssize_t conn_read(const conn_t *conn, void *buf, const size_t count)
+{
+    if (!conn->is_tls || !conn->ssl) {
+        return read(conn->fd, buf, count);
+    }
+
+    const int ret = SSL_read(conn->ssl, buf, (int)count);
+
+    if (ret > 0) {
+        return ret; /* Success, bytes read. */
+    }
+
+    /* Translate the OpenSSL error state. */
+    const int err = SSL_get_error(conn->ssl, ret);
+
+    switch (err) {
+        case SSL_ERROR_ZERO_RETURN:
+            /* The client cleanly closed the TLS connection. */
+            return 0;
+
+        case SSL_ERROR_WANT_READ:
+        case SSL_ERROR_WANT_WRITE:
+            /* Non-blocking socket needs to wait for more network data. */
+            errno = EAGAIN;
+            return -1;
+
+        case SSL_ERROR_SYSCALL:
+            /* A raw socket error occurred. OpenSSL left errno intact for us. */
+            return (ret == 0) ? 0 : -1;
+
+        default:
+            /* A fatal TLS protocol error, bad MAC, etc. */
+            errno = EIO;
+            return -1;
+    }
+}
+
+
+ssize_t conn_write(const conn_t *conn, const void *buf, const size_t count)
+{
+    if (!conn->is_tls || !conn->ssl) {
+        return write(conn->fd, buf, count);
+    }
+
+    const int ret = SSL_write(conn->ssl, buf, (int)count);
+
+    if (ret > 0) {
+        return ret;
+    }
+
+    const int err = SSL_get_error(conn->ssl, ret);
+
+    switch (err) {
+        case SSL_ERROR_WANT_READ:
+        case SSL_ERROR_WANT_WRITE:
+            errno = EAGAIN;
+            return -1;
+        case SSL_ERROR_SYSCALL:
+            return -1;
+        default:
+            errno = EIO;
+            return -1;
+    }
+}
+
+
 void send_response(request_ctx_t *ctx)
 {
     /* Build the header string into the buffer. */
     const size_t header_len = resp_build_response(ctx, ctx->response.header_buffer, HEADER_BUFFER_SIZE);
 
     /* Send the headers. */
-    ssize_t res = write(ctx->conn->fd, ctx->response.header_buffer, header_len);
+    ssize_t res = conn_write(ctx->conn, ctx->response.header_buffer, header_len);
     if (res < 0) {
         /* write() call failed - not much we can do but log it. */
         l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
@@ -195,7 +262,7 @@ void send_response(request_ctx_t *ctx)
     /* Send the body IF it's a GET request, and it has data
      * (HEAD requests MUST NOT have a body per RFC 9110). */
     if (ctx->method == M_GET && ctx->response.body_data != NULL && ctx->response.body_len > 0) {
-        res = write(ctx->conn->fd, ctx->response.body_data, ctx->response.body_len);
+        res = conn_write(ctx->conn, ctx->response.body_data, ctx->response.body_len);
         if (res < 0) {
             /* write() call failed - not much we can do but log it. */
             l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
