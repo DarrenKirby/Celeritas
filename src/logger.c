@@ -19,24 +19,21 @@
 
 #include "logger.h"
 #include "threadpool.h"
+#include "util.h"
 
 #include <unistd.h>
-#include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
-
-#include "util.h"
 
 #define BATCH_SIZE 32
 
 
 logger_t logger;
 
-
+/* Adds a priority prefix to event_log entries. */
 char* l_priority(const int priority)
 {
     switch (priority) {
@@ -68,12 +65,14 @@ char* l_format_datetime(void)
 }
 
 
+/* Returns a unique thread id value (for debugging threads). */
 unsigned long get_tid(void)
 {
     return (unsigned long)pthread_self();
 }
 
 
+/* Formats an access_log entry for the ring buffer. */
 void log_access(request_ctx_t* ctx)
 {
     const uint64_t latency = get_now_us() - ctx->start_time;
@@ -84,6 +83,7 @@ void log_access(request_ctx_t* ctx)
 }
 
 
+/* Push messages to the log ring buffer. */
 void log_write(const logger_t* log, const log_target_t target, const char *fmt, ...)
 {
     log_entry_t entry;
@@ -129,9 +129,12 @@ void log_write(const logger_t* log, const log_target_t target, const char *fmt, 
 }
 
 
+/* An endless loop wherein the logging thread pops messages from the
+ * log ring buffer, and collects them for vectorized I/O. */
+// ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *logger_thread(void *arg)
 {
-    logger_t *log = arg;
+    const logger_t *log = arg;
 
     while (1) {
         log_entry_t local_batch[BATCH_SIZE];
@@ -201,65 +204,33 @@ void *logger_thread(void *arg)
 }
 
 
-void early_fatal(const char *msg)
+/* Initiate the logging subsystem infrastructure. */
+logger_t* logger_init(const int access_fd, const int event_fd)
 {
-    const int fd = open("./startup_fail.log",
-                  O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd >= 0) {
-        ssize_t rv = write(fd, msg, strlen(msg));
-        if (rv < 0) {
-            close(fd);
-            exit(1);
-        }
-        rv = write(fd, "\n", 1);
-        if (rv < 0) {
-            close(fd);
-            exit(1);
-        }
-    }
-    close(fd);
-    exit(1);
-}
-
-
-logger_t* logger_init(void)
-{
-    char alog[PATH_MAX];
-    char elog[PATH_MAX];
-
     /* Grab read lock to read config. */
     THR_OK(pthread_rwlock_rdlock(&config_lock));
-    strncpy(alog, conf_data->access_log, PATH_MAX);
-    strncpy(elog, conf_data->event_log, PATH_MAX);
     const uint16_t log_buf_size = conf_data->log_queue_size;
     THR_OK(pthread_rwlock_unlock(&config_lock));
 
-    /* Ensure path to logs exists. */
-    validate_path(alog);
-    validate_path(elog);
-
     /* Assign the log descriptors. */
-    logger.access_fd = open(alog, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (logger.access_fd < 0) {
-        early_fatal("opening access log failed\n");
-    }
-    logger.event_fd = open(elog, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (logger.event_fd < 0) {
-        early_fatal("opening event log failed\n");
-    }
+    logger.access_fd = access_fd;
+    logger.event_fd = event_fd;
 
+    /* Set shutdown flag. */
     logger.shutdown = 0;
 
     /* Allocate log ring buffer. */
     logger.ring = calloc(1, sizeof(struct log_ring_t));
     if (!logger.ring) {
-        early_fatal("failed to allocate log buffer\n");
+        dprintf(event_fd, "FATAL: failed to allocate log buffer\n");
+        exit(1);
     }
 
     /* Allocate array of log ring buffer entries. */
-    logger.ring->entries = calloc(1, sizeof(struct log_entry_t) * log_buf_size);
+    logger.ring->entries = calloc(1, sizeof(log_entry_t) * log_buf_size);
     if (!logger.ring) {
-        early_fatal("failed to allocate log buffer\n");
+        dprintf(event_fd, "FATAL: failed to allocate log buffer\n");
+        exit(1);
     }
 
     logger.ring_size = log_buf_size;
@@ -271,12 +242,14 @@ logger_t* logger_init(void)
     THR_OK(pthread_cond_init(&logger.ring->not_full, nullptr));
 
     if (pthread_create(&logger.thread, nullptr, logger_thread, &logger) != 0) {
-        early_fatal("creating logger thread failed\n");
+        dprintf(event_fd, "FATAL: creating logger thread failed\n");
+        exit(1);
     }
     return &logger;
 }
 
 
+/* Shuts down the logging subsystem. */
 void logger_shutdown(logger_t *log)
 {
     THR_OK(pthread_mutex_lock(&log->ring->mutex));
@@ -293,7 +266,7 @@ void logger_shutdown(logger_t *log)
     /* Wait for the logger to finish draining the ring. */
     THR_OK(pthread_join(log->thread, nullptr));
 
-    /* Deallocate lg buffer and close the files. */
+    /* Deallocate log buffer and close the files. */
     free(log->ring->entries);
     free(log->ring);
 

@@ -53,12 +53,11 @@
          ##__VA_ARGS__)
 
 
-logger_t* logger_init(void);
+logger_t* logger_init(int access_fd, int event_fd);
 void logger_shutdown(logger_t *log);
 char* l_format_datetime(void);
 char* l_priority(int priority);
 unsigned long get_tid(void);
-void early_fatal(const char *msg);
 void log_write(const logger_t* log, log_target_t target, const char *fmt, ...);
 void log_access(request_ctx_t* ctx);
 
