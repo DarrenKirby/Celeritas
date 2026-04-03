@@ -24,14 +24,13 @@
 #include "mime.h"
 #include "http_common.h"
 #include "config.h"
+#include "threadpool.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <stdlib.h>
-
-#include "threadpool.h"
 
 
 /* Resolves a URI to a physical path on disk. */
@@ -86,7 +85,6 @@ void handle_error(request_ctx_t *ctx)
 }
 
 
-
 void handle_static(request_ctx_t *ctx)
 {
     switch (ctx->method) {
@@ -95,6 +93,8 @@ void handle_static(request_ctx_t *ctx)
             return handle_get_head(ctx);
         case M_OPTIONS:
             return handle_options(ctx);
+        case M_PUT:
+            return handle_put(ctx);
         default:
             ;
     }
@@ -147,6 +147,11 @@ void handle_get_head(request_ctx_t* ctx)
         resp_map_file_to_ctx(ctx, local_file);
         ctx->response.is_mmap = true;
     }
+}
+
+
+void handle_put(const request_ctx_t* ctx) {
+    l_debug(ctx->log, "got a put");
 }
 
 

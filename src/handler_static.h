@@ -26,6 +26,7 @@ typedef struct request_ctx_t request_ctx_t;
 void handle_error(request_ctx_t* ctx);
 void handle_options(request_ctx_t *ctx);
 void handle_get_head(request_ctx_t* ctx);
+void handle_put(const request_ctx_t* ctx);
 void handle_static(request_ctx_t *ctx);
 void cleanup_request_resources(const request_ctx_t* ctx);
 
