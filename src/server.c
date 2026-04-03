@@ -256,7 +256,7 @@ int already_running(const char* lockfile_name, const int elfd)
     const int fd = open(lockfile_name, O_RDWR | O_CREAT, LOCK_MODE);
 
     if (fd < 0) {
-        dprintf(elfd, "can't open lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(elfd, "can't open lockfile %s: %s\n", lockfile_name, strerror(errno));
         return 1;
     }
 
@@ -265,18 +265,18 @@ int already_running(const char* lockfile_name, const int elfd)
             close(fd);
             return 1;
         }
-        dprintf(elfd, "can't lock lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(elfd, "can't lock lockfile %s: %s\n", lockfile_name, strerror(errno));
         return 1;
     }
 
     if (ftruncate(fd, 0) < 0) {
-        dprintf(elfd, "can't truncate lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(elfd, "can't truncate lockfile %s: %s\n", lockfile_name, strerror(errno));
     }
     char buf[16];
     const ssize_t bytes_in_buf = snprintf(buf, sizeof(buf),"%ld", (long)getpid());
     const ssize_t rv = write(fd, buf, bytes_in_buf);
     if (rv < 0) {
-        dprintf(fd, "can't write to lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(fd, "can't write to lockfile %s: %s\n", lockfile_name, strerror(errno));
         return 1;
     }
     return 0;
