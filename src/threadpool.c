@@ -22,7 +22,6 @@
 #include "server.h"
 #include "socket.h"
 #include "util.h"
-//#include "tls.h"
 #include "http_common.h"
 #include "validator.h"
 #include "handler_static.h"
@@ -33,16 +32,17 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <math.h>
 #include <sys/mman.h>
 
 #define UPGRADE_REQUIRED 1
 #define MAX_WAIT_EVENTS 64
 #define MAX_TICK_MS 200
 
-
 server_t server = {0};
 
 
+/* Initializes the work and wait queues. */
 static int queue_init(work_queue_t *q, const int capacity)
 {
     q->buf = malloc(sizeof(conn_t) * capacity);
@@ -61,6 +61,7 @@ static int queue_init(work_queue_t *q, const int capacity)
 }
 
 
+/* Pushes a connection to the work and wait queues. */
 static void queue_push(work_queue_t *q, const conn_t *c)
 {
     THR_OK(pthread_mutex_lock(&q->mutex));
@@ -78,6 +79,7 @@ static void queue_push(work_queue_t *q, const conn_t *c)
 }
 
 
+/* Blocking pop connection from the work and wait queues. */
 static int queue_pop(work_queue_t *q, conn_t *out)
 {
     THR_OK(pthread_mutex_lock(&q->mutex));
@@ -104,6 +106,7 @@ static int queue_pop(work_queue_t *q, conn_t *out)
 }
 
 
+/* Non-blocking pop connection from the work and wait queues. */
 static int queue_trypop(work_queue_t *q, conn_t *out)
 {
     THR_OK(pthread_mutex_lock(&q->mutex));
@@ -222,7 +225,8 @@ void *worker_thread(void *arg) {
     THR_OK(pthread_rwlock_unlock(&config_lock));
 
     while (queue_pop(wa->work_queue, &conn) == 0) {
-        /* Determine the HTTP version of the request if unknown. */
+        /* Determine the HTTP version of the request if unknown.
+         * This will already be set for keep alive connections. */
         if (conn.protocol == PROTO_UNKNOWN) {
             demux_protocol(&conn);
         }
@@ -232,10 +236,17 @@ void *worker_thread(void *arg) {
         ctx->log = wa->logger;
         ctx->start_time = get_now_us();
 
-        /* Perform TLS handshake (NO-OP for now...) */
-        // if (conn.is_tls && perform_tls_handshake(ctx) != 0) {
-        //     ctx->status_code = 400;
-        // }
+        /* Perform TLS handshake. */
+        /* FIXME: should this be repeated for keep alive connections? */
+        if (conn.is_tls && conn.ssl) {
+            const int result = perform_tls_handshake(&conn);
+            if (result != 0) {
+                /* Not much to do but log the error and drop the connection. */
+                l_error(ctx->log, "perform_tls_handshake failed");
+                close_connection(&conn);
+                continue;
+            }
+        }
 
         /* Read and parse request. */
         if (process_ingress(ctx) != 0) {
@@ -288,26 +299,11 @@ void *listener_thread(void *arg)
     const listener_args_t *la = arg;
     work_queue_t *q = la->queue;
     logger_t *log = la->logger;
-
-    l_info(log, "binding to port: %d", la->port);
-
-    /* Next step... */
-    const int listen_fd = create_listener(la->port, log);
-
-    if (listen_fd < 0) {
-        l_error(log, "listener creation failed, thread exiting");
-        return NULL;
-    }
-
-    if (la->is_tls) {
-        server.https_fd = listen_fd;
-    } else {
-        server.http_fd = listen_fd;
-    }
+    const int listen_fd = la->sock;
 
     while (!shutting_down) {
         conn_t conn = {0};
-        const int rv = accept_connection(listen_fd, la->is_tls, &conn);
+        const int rv = accept_connection(log, listen_fd, la->is_tls, &conn);
 
         /* The shutdown signal will likely arrive whilst blocking on accept().
          * Ignore whatever accept_connection returned. */
@@ -316,9 +312,8 @@ void *listener_thread(void *arg)
             break;
         }
 
-        /* Log accept() failure. */
+        /* Sleep and try again. */
         if (rv != 0) {
-            l_warn(log, "accept() failed: %s", strerror(rv));
             usleep(10000); /* 10ms — prevents CPU spin. */
             continue;
         }
@@ -329,15 +324,17 @@ void *listener_thread(void *arg)
     return nullptr;
 }
 
-
-void worker_init(logger_t* log, const char lockfile[])
+/* Initializes the worker thread pool, two listener threads, and a singleton
+ * wait room thread. Also initializes the queue infrastructure needed by the threads. */
+void worker_init(logger_t* log, const char lockfile[], const int http_sock, const int https_sock)
 {
+    server.http_fd = http_sock;
+    server.https_fd = https_sock;
+
     /* Get values from config. */
     THR_OK(pthread_rwlock_rdlock(&config_lock));
     const uint16_t cap = conf_data->conn_queue_size;
     const uint16_t N = conf_data->worker_threads;
-    const uint16_t http_port = conf_data->http_port;
-    const uint16_t https_port = conf_data->https_port;
     THR_OK(pthread_rwlock_unlock(&config_lock));
 
     /* Initialize the work queue. */
@@ -403,7 +400,7 @@ void worker_init(logger_t* log, const char lockfile[])
     static listener_args_t http_l_args;
     http_l_args.logger = log;
     http_l_args.queue = work_queue;
-    http_l_args.port = http_port;
+    http_l_args.sock = http_sock;
     http_l_args.is_tls = false;
 
     /* Spawn the http listener. */
@@ -416,7 +413,7 @@ void worker_init(logger_t* log, const char lockfile[])
     static listener_args_t https_l_args;
     https_l_args.logger = log;
     https_l_args.queue = work_queue;
-    https_l_args.port = https_port;
+    https_l_args.sock = https_sock;
     https_l_args.is_tls = true;
 
     /* Spawn the http listener. */

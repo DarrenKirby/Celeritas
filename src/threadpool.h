@@ -66,7 +66,7 @@ typedef struct {
 /* Argument struct for listener_thread. */
 typedef struct {
     work_queue_t *queue;
-    uint16_t port;
+    int sock;
     logger_t *logger;
     uint8_t is_tls;
 } listener_args_t;
@@ -93,6 +93,6 @@ struct server_t {
 };
 
 
-void worker_init(logger_t* log, const char lockfile[]);
+void worker_init(logger_t* log, const char lockfile[], int http_sock, int https_sock);
 
 #endif //CELERITAS_THREADPOOL_H
