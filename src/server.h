@@ -33,10 +33,12 @@ typedef struct {
 
 
 void daemonize(void);
-int already_running(char* lockfile_name, logger_t* log);
+int already_running(const char* lockfile_name, int elfd);
+int drop_privileges(const char *username, const char *groupname, int fd);
 noreturn void server_shutdown(logger_t* log, int status);
 void *thr_sig_handler(void *arg);
 int lockfile(int fd);
 void resolve_config_path(int argc, char *argv[]);
+SSL_CTX *init_ssl_context(const char *cert_path, const char *key_path);
 
 #endif //CELERITAS_SERVER_H

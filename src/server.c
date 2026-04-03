@@ -23,16 +23,16 @@
 #include "threadpool.h"
 
 #include <unistd.h>
+#include <pwd.h>
+#include <grp.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
-#include <stdlib.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <getopt.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define DEFAULT_CONFIG_PATH "/etc/celeritas/celeritas.conf"
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
@@ -46,13 +46,19 @@ char active_config_path[PATH_MAX];
 static void show_help(void) {
     printf("Usage: %s [OPTION] | [-c | --config-file=PATH] \n\n\
 Options:\n\
-    -c, --config-file\t\tpath to the celeritas configuration file\n\
+    -c, --config-file\tpath to the celeritas configuration file\n\
+    -v, --verbose\tbe more chatty on startup (does not affect logging)\n\
     -h, --help\t\tdisplay this help and exit\n\
     -V, --version\tdisplay version information and exit\n\n\
 Report bugs to <darren@dragonbyte.ca>\n", APPNAME);
 }
 
 
+/* Collects CLI args, and applies the configuration file hierarchy:
+ * 1. CLI argument (-c <path> or --config-file=<path>).
+ * 2. Value of CELERITAS_CONF environmental variable.
+ * 3. Fixed '/etc/celeritas/celeritas.conf
+ */
 void resolve_config_path(int argc, char *argv[])
 {
     int opt;
@@ -61,21 +67,32 @@ void resolve_config_path(int argc, char *argv[])
     const struct option long_opts[] = {
         {"help", 0, nullptr, 'h'},
         {"version", 0, nullptr, 'V'},
+        {"verbose", 0, nullptr, 'v'},
         {"config-file", 1, nullptr, 'c'},
         {nullptr,0,nullptr,0}
     };
 
-    while ((opt = getopt_long(argc, argv, "Vhc:", long_opts, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "Vhvc:", long_opts, nullptr)) != -1) {
         switch(opt) {
             case 'V':
                 printf("%s version %s\n", APPNAME, APPVERSION);
-                printf("compiled on %s at %s\n", __DATE__, __TIME__);
+                printf("  compiled on %s at %s\n", __DATE__, __TIME__);
                 exit(EXIT_SUCCESS);
             case 'h':
                 show_help();
                 exit(EXIT_SUCCESS);
             case 'c':
                 cli_path = optarg;
+                break;
+            case 'v':
+                printf("\n%s version %s: the 'caffeinated' http server\n", APPNAME, APPVERSION);
+                printf("  report bugs to: <darren@dragonbyte.ca>\n");
+                printf("           or at: https://github.com/DarrenKirby/Celeritas\n");
+                printf("  compiled on %s at %s\n\n", __DATE__, __TIME__);
+                printf("OpenSSL version (compile-time): %s\n", OPENSSL_VERSION_TEXT);
+                printf("OpenSSL version (runtime):      %s\n", OpenSSL_version(OPENSSL_VERSION));
+                printf("OpenSSL built on:               %s\n", OpenSSL_version(OPENSSL_BUILT_ON));
+                printf("OpenSSL platform:               %s\n", OpenSSL_version(OPENSSL_PLATFORM));
                 break;
             default:
                 show_help();
@@ -99,17 +116,98 @@ void resolve_config_path(int argc, char *argv[])
 }
 
 
+/* Called once at startup. This function initializes the
+ * SSL_CTX struct necessary for TLS/SSL connections. */
+SSL_CTX *init_ssl_context(const char *cert_path, const char *key_path)
+{
+    /* Use TLS_server_method() for modern OpenSSL versions (1.1.0+). */
+    const SSL_METHOD *method = TLS_server_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+
+    if (!ctx) {
+        fprintf(stderr, "Unable to create SSL context\n");
+        ERR_print_errors_fp(stderr);
+        return nullptr;
+    }
+
+    /* Enforce modern security: disable old SSLv3, TLSv1.0, TLSv1.1. */
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+
+    /* Load the certificate */
+    if (SSL_CTX_use_certificate_file(ctx, cert_path, SSL_FILETYPE_PEM) <= 0) {
+        fprintf(stderr, "Failed to load certificate: %s\n", cert_path);
+        ERR_print_errors_fp(stderr);
+        return nullptr;
+    }
+
+    /* Load the private key. */
+    if (SSL_CTX_use_PrivateKey_file(ctx, key_path, SSL_FILETYPE_PEM) <= 0) {
+        fprintf(stderr, "Failed to load private key: %s\n", key_path);
+        ERR_print_errors_fp(stderr);
+        return nullptr;
+    }
+
+    /* Verify the key matches the certificate. */
+    if (!SSL_CTX_check_private_key(ctx)) {
+        fprintf(stderr, "Private key does not match the public certificate\n");
+        return nullptr;
+    }
+
+    return ctx;
+}
+
+
+/* If root, drop privileges to the user/group specified in the configuration file,
+ * or www/www by default. */
+int drop_privileges(const char *username, const char *groupname, const int fd)
+{
+    /* Look up the group and user records. */
+    struct group *grp = getgrnam(groupname);
+    if (!grp) {
+        dprintf(fd, "Fatal: Group '%s' not found.\n", groupname);
+        return -1;
+    }
+
+    struct passwd *pwd = getpwnam(username);
+    if (!pwd) {
+        dprintf(fd, "Fatal: User '%s' not found.\n", username);
+        return -1;
+    }
+
+    /* Drop supplementary groups. */
+    if (initgroups(username, (int)grp->gr_gid) != 0) {
+        dprintf(fd, "Fatal: Failed to clear supplementary groups: %s\n", strerror(errno));
+        return -1;
+    }
+
+    /* Drop the primary group (MUST be done before dropping the user). */
+    if (setgid(grp->gr_gid) != 0) {
+        dprintf(fd, "Fatal: Failed to drop group privileges: %s\n", strerror(errno));
+        return -1;
+    }
+
+    /* Drop the primary user permanently. */
+    if (setuid(pwd->pw_uid) != 0) {
+        dprintf(fd, "Fatal: Failed to drop user privileges: %s\n", strerror(errno));
+        return -1;
+    }
+
+    /* Security Check: Prove we can't get root back. */
+    if (setuid(0) == 0) {
+        dprintf(fd, "Fatal: Privilege drop failed. Successfully regained root!\n");
+        return -1;
+    }
+
+    return 0; /* We are permanently unprivileged. */
+}
+
+
+/* Perform a double-fork to drop the controlling terminal
+ * and daemonize the server. */
 void daemonize(void)
 {
     /* Clear file creation mask. */
     umask(0);
-
-    /* Get maximum number of file descriptors. */
-    struct rlimit rl;
-    if (getrlimit(RLIMIT_NOFILE, &rl) < 0) {
-        fprintf(stderr, "getrlimit: %s\n", strerror(errno));
-        exit(1);
-    }
 
     /* Become session leader to lose controlling TTY. */
     pid_t pid;
@@ -128,37 +226,38 @@ void daemonize(void)
 
     /* Change CWD to root so we won't stop filesystems
      * from being unmounted. */
-    /* FIXME: disabled cd during testing, so I can cheat and use
-     * relative paths for files. Restore this after proper local
-     * config file parsing has been implemented. */
-    // if (chdir("/") < 0) {
-    //     fprintf(stderr, "chdir: %s\n", strerror(errno));
-    //     exit(1);
-    // }
-
-    /* Close all open file descriptors. */
-    if (rl.rlim_max == RLIM_INFINITY) { rl.rlim_max = 1024; }
-    for (rlim_t i = 0; i < rl.rlim_max; i++) { close((int)i); }
-
-    /* Attach file descriptors 0, 1, and 2 to /dev/null. */
-    const int fd0 = open("/dev/null", O_RDWR);
-    const int fd1 = dup(0);
-    const int fd2 = dup(0);
-
-    if (fd0 != 0 || fd1 != 1 || fd2 != 2) {
-        /* Nowhere to write an error to! */
+    if (chdir("/") < 0) {
+        fprintf(stderr, "chdir: %s\n", strerror(errno));
         exit(1);
+    }
+
+    /* Open /dev/null */
+    const int dev_null = open("/dev/null", O_RDWR);
+    if (dev_null < 0) {
+        /* If we can't even open /dev/null, the system is fundamentally broken. */
+        exit(1);
+    }
+
+    /* Atomically close the old 0,1,2 and redirect them to /dev/null */
+    dup2(dev_null, STDIN_FILENO);
+    dup2(dev_null, STDOUT_FILENO);
+    dup2(dev_null, STDERR_FILENO);
+
+    /* Close the original /dev/null FD if it's outside the standard 3 */
+    if (dev_null > STDERR_FILENO) {
+        close(dev_null);
     }
 }
 
-
-int already_running(char* lockfile_name, logger_t* log)
+/* Attempt to write a runtime lock file to determine if the server
+ * has already been started or not. */
+int already_running(const char* lockfile_name, const int elfd)
 {
     const int fd = open(lockfile_name, O_RDWR | O_CREAT, LOCK_MODE);
 
     if (fd < 0) {
-        l_error(log, "can't open lockfile %s: %s", lockfile_name, strerror(errno));
-        server_shutdown(log, 1);
+        dprintf(elfd, "can't open lockfile %s: %s", lockfile_name, strerror(errno));
+        return 1;
     }
 
     if (lockfile(fd) < 0) {
@@ -166,23 +265,26 @@ int already_running(char* lockfile_name, logger_t* log)
             close(fd);
             return 1;
         }
-        l_error(log, "can't lock lockfile %s: %s", lockfile_name, strerror(errno));
-        server_shutdown(log, 1);
+        dprintf(elfd, "can't lock lockfile %s: %s", lockfile_name, strerror(errno));
+        return 1;
     }
 
     if (ftruncate(fd, 0) < 0) {
-        l_error(log, "can't truncate lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(elfd, "can't truncate lockfile %s: %s", lockfile_name, strerror(errno));
     }
     char buf[16];
     const ssize_t bytes_in_buf = snprintf(buf, sizeof(buf),"%ld", (long)getpid());
     const ssize_t rv = write(fd, buf, bytes_in_buf);
     if (rv < 0) {
-        l_warn(log, "can't write to lockfile %s: %s", lockfile_name, strerror(errno));
+        dprintf(fd, "can't write to lockfile %s: %s", lockfile_name, strerror(errno));
+        return 1;
     }
     return 0;
 }
 
 
+/* A singleton thread that just listens for SIGHUP and SIGTERM,
+ * in order to trigger configuration file re-reading, or server shutdown. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void* thr_sig_handler(void *arg)
 {
@@ -214,6 +316,7 @@ void* thr_sig_handler(void *arg)
 }
 
 
+/* Locks the runtime pid file. */
 int lockfile(const int fd)
 {
     struct flock fl;
@@ -225,6 +328,7 @@ int lockfile(const int fd)
 }
 
 
+/* Orchestrates the clean shutdown of the server. */
 void server_shutdown(logger_t* log, const int status)
 {
     l_info(log, "server shutdown starting");
@@ -255,7 +359,7 @@ void server_shutdown(logger_t* log, const int status)
         pthread_join(server.workers[i], nullptr);
     }
 
-    /**/
+    /* Free the work/wait queues. */
     free(server.work_queue);
     free(server.wait_queue);
     free(server.workers);
