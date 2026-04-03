@@ -30,13 +30,16 @@
 #include <stdlib.h>
 
 
-
+/* Helper to assign a status code to a ctx struct. Not sure
+ * if this is more useful than just assigning directly. */
 void resp_set_status(request_ctx_t* ctx, const int status)
 {
     ctx->status_code = status;
 }
 
 
+/* Interprets two const char* args as key and value pairs
+ * and adds them to the header array. */
 void resp_add_header(request_ctx_t* ctx, const char* name, const char* value)
 {
     const int header_idx = ctx->response.header_count;
@@ -48,6 +51,8 @@ void resp_add_header(request_ctx_t* ctx, const char* name, const char* value)
 }
 
 
+/* Automatically add the default headers present
+ * on all responses. */
 void resp_add_common_headers(request_ctx_t* ctx)
 {
     char now[30];
@@ -59,6 +64,8 @@ void resp_add_common_headers(request_ctx_t* ctx)
 }
 
 
+/* Builds the status line, loops over the response headers,
+ * and builds a response header block into a buffer. */
 size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining)
 {
     /* NOTE: Overflow code commented out, as currently,
@@ -94,6 +101,8 @@ size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining)
 }
 
 
+/* mmap() the requested file and store the pointer to it
+ * in the response struct. */
 int resp_map_file_to_ctx(request_ctx_t *ctx, const char *filepath)
 {
     const int fd = open(filepath, O_RDONLY);

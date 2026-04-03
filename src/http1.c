@@ -30,6 +30,7 @@
 #define MAX_HEADER_SIZE 8192
 
 
+/* Reads an HTTP 1.x request header into a buffer. */
 int read_http_headers(request_ctx_t* ctx)
 {
     const int fd = ctx->conn->fd;
@@ -86,6 +87,7 @@ int read_http_headers(request_ctx_t* ctx)
 }
 
 
+/* Parse HTTP 1.x requests. */
 int parse_http1(request_ctx_t *ctx, const char *buf, const size_t len)
 {
     const char *p = buf;

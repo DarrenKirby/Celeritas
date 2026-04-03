@@ -28,16 +28,15 @@
 #include "io_watcher.h"
 
 #include <stdio.h>
-#include <string.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <errno.h>
 #include <math.h>
-#include <sys/mman.h>
+#include <openssl/ssl.h>
 
 #define UPGRADE_REQUIRED 1
 #define MAX_WAIT_EVENTS 64
 #define MAX_TICK_MS 200
+
 
 server_t server = {0};
 
@@ -132,6 +131,10 @@ static int queue_trypop(work_queue_t *q, conn_t *out)
 }
 
 
+/* The singleton wait room thread pops connections from the
+ * wait queue, registers them with the kernel for monitoring,
+ * pushes them back to the work queue when read-ready, and
+ * cleans up and closes any connections that have times out. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *wait_room_thread(void *arg)
 {
@@ -215,6 +218,9 @@ void *wait_room_thread(void *arg)
 }
 
 
+/* The worker threads pop jobs from the queue, and handle each
+ * request/response unit end to end. If the connection is keep alive,
+ * it will be pushed to the wait queue for monitoring. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *worker_thread(void *arg) {
     const worker_args_t *wa = arg;
@@ -237,14 +243,16 @@ void *worker_thread(void *arg) {
         ctx->start_time = get_now_us();
 
         /* Perform TLS handshake. */
-        /* FIXME: should this be repeated for keep alive connections? */
         if (conn.is_tls && conn.ssl) {
-            const int result = perform_tls_handshake(&conn);
-            if (result != 0) {
-                /* Not much to do but log the error and drop the connection. */
-                l_error(ctx->log, "perform_tls_handshake failed");
-                close_connection(&conn);
-                continue;
+            /* Only perform the handshake if OpenSSL says it hasn't finished yet */
+            if (!SSL_is_init_finished(conn.ssl)) {
+                const int result = perform_tls_handshake(&conn);
+                if (result != 0) {
+                    /* Not much to do but log the error and drop the connection. */
+                    l_error(ctx->log, "perform_tls_handshake failed");
+                    close_connection(&conn);
+                    continue;
+                }
             }
         }
 
@@ -293,6 +301,8 @@ void *worker_thread(void *arg) {
 }
 
 
+/* The listener threads just listen on the HTTP and HTTPS ports,
+ * accept connections, and push them to the work queue. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *listener_thread(void *arg)
 {
@@ -367,7 +377,7 @@ void worker_init(logger_t* log, const char lockfile[], const int http_sock, cons
 
     server.work_queue = work_queue;
     server.wait_queue = wait_queue;
-    strncpy(server.lock_file, lockfile, PATH_MAX);
+    strncpy(server.lock_file, lockfile, sizeof(server.lock_file) - 1);
 
     /* Set up args for the wait room thread. */
     static worker_args_t wr_args;

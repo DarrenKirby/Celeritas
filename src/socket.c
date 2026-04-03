@@ -140,7 +140,7 @@ int create_listener(const uint16_t port)
 
 /* Used by the listener threads to accept connections on
  * their assigned ports. */
-int accept_connection(logger_t *log, const int listen_fd, const int is_tls, conn_t* conn) {
+int accept_connection(const logger_t *log, const int listen_fd, const int is_tls, conn_t* conn) {
     struct sockaddr_storage addr;
     socklen_t len = sizeof(addr);
 
@@ -213,7 +213,7 @@ void demux_protocol(conn_t* conn)
 }
 
 
-/* Sets a scket timeout on the passed file descriptor. */
+/* Sets a socket timeout on the passed file descriptor. */
 void set_socket_timeout(const int fd, const int seconds)
 {
     struct timeval tv;

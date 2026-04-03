@@ -36,7 +36,7 @@
 #endif
 
 
-
+/* Initializes and returns the kqueue/epoll file descriptor. */
 io_watcher_t *io_watcher_create(logger_t *log)
 {
     io_watcher_t *w = malloc(sizeof(io_watcher_t));
@@ -46,14 +46,12 @@ io_watcher_t *io_watcher_create(logger_t *log)
     }
 #ifndef __linux__
     const int fd = kqueue();
-    /* Not sure if this error is recoverable.
-     * I think it's unlikely it would error. */
+    /* Not sure if this error is recoverable. */
     if (fd < 0) {
         l_error(log, "error creating kqueue: %s", strerror(errno));
         server_shutdown(log, 1);
     }
 #else
-    /* epoll stuff here.... */
     const int fd = epoll_create1(0);
     if (fd < 0) {
         l_error(log, "error creating epoll: %s", strerror(errno));
@@ -65,6 +63,7 @@ io_watcher_t *io_watcher_create(logger_t *log)
 }
 
 
+/* Closes the I/O watcher FD and frees the memory. */
 void io_watcher_destroy(io_watcher_t *w)
 {
     close(w->fd);
@@ -72,6 +71,11 @@ void io_watcher_destroy(io_watcher_t *w)
 }
 
 
+/* Registers a connection with the kernel poll mechanism.
+ * When kqueue fires an event, it deregisters the FD automatically.
+ * epoll() on Linux does not, it only 'disarms' it. For performance,
+ * we allow it to stay, and re-arm it if the connection comes around
+ * again. It will ultimately be removed when the connection FD is closed. */
 int io_watcher_add(const io_watcher_t *w, const int fd, void *userdata) {
 #ifndef __linux__
     struct kevent event;
@@ -82,15 +86,14 @@ int io_watcher_add(const io_watcher_t *w, const int fd, void *userdata) {
         return -1;
     }
 #else
-    /* epoll stuff here. */
     struct epoll_event event;
     event.events = EPOLLIN | EPOLLONESHOT;
     event.data.ptr = userdata;
 
     if (epoll_ctl(w->fd, EPOLL_CTL_ADD, fd, &event) != 0) {
         if (errno == EEXIST) {
-            // It's already in the tree from a previous keep-alive cycle.
-            // Just re-arm it.
+            /* It's already in the tree from a previous keep-alive cycle.
+             * Just re-arm it. */
             if (epoll_ctl(w->fd, EPOLL_CTL_MOD, fd, &event) == 0) {
                 return 0;
             }
@@ -102,6 +105,8 @@ int io_watcher_add(const io_watcher_t *w, const int fd, void *userdata) {
 }
 
 
+/* Remove a connection from the kernel polling mechanism.
+ * This is used when the connection times out prior to firing. */
 int io_watcher_remove(const io_watcher_t *w, const int fd)
 {
 #ifndef __linux__
@@ -111,7 +116,6 @@ int io_watcher_remove(const io_watcher_t *w, const int fd)
         return -1;
     }
 #else
-    /* epoll stuff here. */
     if (epoll_ctl(w->fd, EPOLL_CTL_DEL, fd, NULL) != 0) {
         return -1;
     }
@@ -120,6 +124,7 @@ int io_watcher_remove(const io_watcher_t *w, const int fd)
 }
 
 
+/* Wait for connections to become read-ready. */
 int io_watcher_wait(const io_watcher_t *w, io_event_t *events, const int max_events, const int timeout_ms)
 {
     int num_events;
@@ -146,7 +151,6 @@ int io_watcher_wait(const io_watcher_t *w, io_event_t *events, const int max_eve
         }
     }
 #else
-    /* epoll stuff here. */
     struct epoll_event ep_list[max_events];
     num_events = epoll_wait(w->fd, ep_list, max_events, timeout_ms);
     if (num_events < 0) {
@@ -162,9 +166,12 @@ int io_watcher_wait(const io_watcher_t *w, io_event_t *events, const int max_eve
 }
 
 
+/* As there is no clean way to get a list of which
+ * FDs are being monitored from the kernel itself,
+ * we must keep track of that ourselves, externally. */
 
-// 1. Initialize once at startup
-int pool_init(conn_pool_t *pool, size_t max_conns)
+/* Initialize the connection pool. */
+int pool_init(conn_pool_t *pool, const size_t max_conns)
 {
     pool->items = malloc(max_conns * sizeof(conn_t));
     if (!pool->items) return -1;
@@ -175,11 +182,11 @@ int pool_init(conn_pool_t *pool, size_t max_conns)
 }
 
 
-// 2. O(1) Add
-int pool_add(conn_pool_t *pool, conn_t new_conn)
+/* Add connections to the connection pool. */
+int pool_add(conn_pool_t *pool, const conn_t new_conn)
 {
     if (pool->count >= pool->capacity) {
-        return -1; // Pool is full
+        return -1; /* Pool is full. */
     }
 
     pool->items[pool->count] = new_conn;
@@ -188,15 +195,15 @@ int pool_add(conn_pool_t *pool, conn_t new_conn)
 }
 
 
-// 3. O(1) Remove ("Swap and Pop")
+/* Removes connections from the connection pool. */
 void pool_remove_at(conn_pool_t *pool, const size_t index)
 {
-    if (index >= pool->count) return; // Out of bounds safety
+    if (index >= pool->count) return;
 
-    // Replace the removed item with the last item in the array
+    /* Replace the removed item with the last item in the array. */
     pool->items[index] = pool->items[pool->count - 1];
 
-    // Shrink the active size
+    /* Shrink the active size. */
     pool->count--;
 }
 
@@ -222,7 +229,7 @@ int pool_nearest_timeout_ms(const conn_pool_t *pool)
 
 
 /* Finds a connection by FD, copies it to out_conn, and removes it. */
-int pool_remove_by_fd(conn_pool_t *pool, int fd, conn_t *out_conn)
+int pool_remove_by_fd(conn_pool_t *pool, const int fd, conn_t *out_conn)
 {
     for (size_t i = 0; i < pool->count; i++) {
         if (pool->items[i].fd == fd) {

@@ -33,6 +33,7 @@
 #define UPGRADE_REQUIRED 1
 
 
+/* Maps HTTP status codes to their associated text representations. */
 const char* http_status_to_string(const int status_code)
 {
     switch (status_code) {
@@ -115,6 +116,7 @@ const char* http_status_to_string(const int status_code)
 }
 
 
+/* Read and parse the HTTP request. */
 int process_ingress(request_ctx_t *ctx)
 {
     const int status = read_http_headers(ctx);
@@ -163,6 +165,8 @@ int process_ingress(request_ctx_t *ctx)
 }
 
 
+/* Route the request to the appropriate handler. Right now
+ * only errors and static handlers are implemented. */
 void route_request(request_ctx_t *ctx)
 {
     /* If a previous stage (validation) already set an error status,
@@ -176,6 +180,7 @@ void route_request(request_ctx_t *ctx)
 }
 
 
+/* TLS/SSL and plain text agnostic wrapper for reading from the socket. */
 ssize_t conn_read(const conn_t *conn, void *buf, const size_t count)
 {
     if (!conn->is_tls || !conn->ssl) {
@@ -214,6 +219,7 @@ ssize_t conn_read(const conn_t *conn, void *buf, const size_t count)
 }
 
 
+/* TLS/SSL and plain text agnostic wrapper for writing to the socket. */
 ssize_t conn_write(const conn_t *conn, const void *buf, const size_t count)
 {
     if (!conn->is_tls || !conn->ssl) {
@@ -242,6 +248,7 @@ ssize_t conn_write(const conn_t *conn, const void *buf, const size_t count)
 }
 
 
+/* Build and send the HTTP response. */
 void send_response(request_ctx_t *ctx)
 {
     /* Build the header string into the buffer. */
@@ -276,6 +283,7 @@ void send_response(request_ctx_t *ctx)
 }
 
 
+/* Determine if the connection should be keep alive or not. */
 bool should_keep_alive(const request_ctx_t *ctx)
 {
     /* If client sent a Connection: close header... */

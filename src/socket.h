@@ -26,7 +26,7 @@
 
 
 int create_listener(uint16_t port);
-int accept_connection(logger_t *log, int listen_fd, int is_tls, conn_t* conn);
+int accept_connection(const logger_t *log, int listen_fd, int is_tls, conn_t* conn);
 void demux_protocol(conn_t* conn);
 void set_socket_timeout(int fd, int seconds);
 void close_connection(const conn_t* conn);
