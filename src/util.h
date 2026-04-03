@@ -33,6 +33,7 @@ uint32_t next_power_of_2(uint32_t v);
 long get_ncpu(void);
 uint64_t get_now_ms(void);
 uint64_t get_now_us(void);
+void early_fatal(const char *msg);
 const char* int_to_string(int i);
 void get_http_date_now(char *buf, size_t len);
 void get_http_date_time_t(char *buf, size_t len, time_t the_time);

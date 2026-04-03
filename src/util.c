@@ -24,6 +24,7 @@
 #include "socket.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
 #include <string.h>
@@ -48,6 +49,7 @@ uint32_t next_power_of_2(uint32_t v)
 }
 
 
+/* Returns the number of CPUs/cores on the currently running system. */
 long get_ncpu(void)
 {
     long n_cpu;
@@ -59,6 +61,7 @@ long get_ncpu(void)
 }
 
 
+/* Returns a monotonic time value in milliseconds. */
 uint64_t get_now_ms(void)
 {
     struct timespec ts;
@@ -67,6 +70,7 @@ uint64_t get_now_ms(void)
 }
 
 
+/* Returns a monotonic time value in microseconds. */
 uint64_t get_now_us(void)
 {
     struct timespec ts;
@@ -105,6 +109,7 @@ const char* int_to_string(const int i)
 }
 
 
+/* Returns true if the header key passed as argument exists in the request. */
 bool confirm_header_exists(const request_ctx_t* ctx, const char* header_name)
 {
     for (int i = 0; i < ctx->request.h1.header_count; i++) {
@@ -126,6 +131,14 @@ const char* get_header_value(const request_ctx_t* ctx, const char* key)
         }
     }
     return nullptr;
+}
+
+
+/* Prints a message and exits. Used only by validate_path. */
+void early_fatal(const char *msg)
+{
+    fprintf(stderr, "%s\n", msg);
+    exit(1);
 }
 
 
@@ -167,6 +180,9 @@ static void create_dir_recursive(const char* dir_path) {
 }
 
 
+/* Ensures that the path leading up to a file exists and
+ * is writable by the calling process. If the path does not
+ * exist, it will be created, mkdir -p style. */
 void validate_path(const char* path)
 {
     if (!path || *path == '\0') {
@@ -241,6 +257,7 @@ void validate_path(const char* path)
 }
 
 
+/* Pretty prints request headers and values. */
 void debug_print_request(request_ctx_t* ctx)
 {
     l_debug(ctx->log, "Start request debug printout\n");
@@ -255,11 +272,13 @@ void debug_print_request(request_ctx_t* ctx)
                                   ctx->request.h1.headers[i].value);
 
     }
+    fprintf(fd, "\nBody overshoot: %zu\n", ctx->body_overshoot_bytes);
     fclose(fd);
     l_debug(ctx->log, "End request debug printout\n");
 }
 
 
+/* Pretty prints response headers and values. */
 void debug_print_response(request_ctx_t* ctx)
 {
     l_debug(ctx->log, "Start response debug printout\n");

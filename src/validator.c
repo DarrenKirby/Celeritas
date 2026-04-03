@@ -69,7 +69,7 @@ void validate_request(request_ctx_t *ctx)
 
     /* Method Whitelist. */
     // ReSharper disable once CppVariableCanBeMadeConstexpr
-    const int mask = M_GET|M_HEAD|M_OPTIONS;
+    const int mask = M_GET|M_HEAD|M_OPTIONS|M_PUT;
     if (!(ctx->method & mask)) {
         l_warn(ctx->log, "request for unsupported method: %s", ctx->request.h1.method);
         resp_set_status(ctx, SC_405_METHOD_NOT_ALLOWED);
