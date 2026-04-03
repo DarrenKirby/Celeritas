@@ -1,0 +1,62 @@
+# celeritas.conf.dist
+#
+# This file serves as an example configuration file for the Celeritas HTTP sever.
+# It demonstrates every currently available configurable setting, and the values
+# it presents are the defaults. As the defaults are configured internally at startup,
+# this implies that the active configuration file only needs to specify settings
+# that you want to be *different* than the defaults.
+
+# Ports
+# The port to listen on for plain-text HTTP connections.
+http_port = 80
+# The port to listen on for encrypted HTTPS connections.
+https_port = 443
+
+# Threads
+# The size of the worker thread pool. The default is calculated at
+#    startup as the number of CPUs/cores on the running system times 2.
+worker_threads = <ncpu * 2>
+
+# Paths
+# Locations of the access and event logs. Note that this setting must
+#    include the file names, as well as the directory path.
+access_log = /var/log/celeritas/access_log
+event_log = /var/log/celeritas/event_log
+# Path to the runtime pid file. Note that this setting must NOT
+#    include the filename. The pidfile is always named 'celeritas.pid'.
+lock_file_path = /var/run/
+# The directory from which to serve content.
+doc_root = /var/www/html/
+
+# TSL/SSL
+# The path to the server's public certificate file.
+tls_cert_path = /etc/ssl/celeritas.crt
+# The path to the server's private key file.
+tls_key_path = /etc/ssl/celeritas.key
+
+# Server user and group
+# The user to run as after dropping privileges (if started as root).
+server_user = www
+# The group to run as after dropping privileges (if started as root).
+server_group = www
+
+# Limits
+# Hard limit size in bytes of the request headers.
+max_rx_header_size = 8192
+# Hard limit size in bytes of the response headers.
+max_tx_header_size = 8192
+# Hard limit size in bytes of the request URL.
+max_url_size = 2048
+# Amount of time in seconds before keep-alive connections time out. Note that the
+#    timeout is reset after every request/response.
+keepalive_timeout = 10
+
+# Queue sizes. All queue sizes must be a power of two. If the value set is not a power of 2,
+#    it will be silently rounded up to the next power of 2.
+# The size of the log ring buffer. If this buffer fills up, access_log messages
+#    will be silently dropped, however, threads will block until space is
+#    available for event log messages.
+log_queue_size = 256
+# The size of the work and wait room buffers. The listener threads will block and be unable
+#    to accept new connections while this buffer is full.
+conn_queue_size = 256
