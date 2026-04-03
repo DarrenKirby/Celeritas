@@ -22,27 +22,27 @@
 #include "server.h"
 #include "threadpool.h"
 #include "logger.h"
+#include "util.h"
+#include "socket.h"
 
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
-//#include <openssl/opensslv.h>
-#include <openssl/crypto.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <stdlib.h>
 
 
 config_data *conf_data;
 pthread_rwlock_t config_lock;
 _Atomic int shutting_down = 0;
+SSL_CTX *ssl_ctx;
 
 
 int main(const int argc, char** argv)
 {
     printf("Waking up and putting the coffee on...\n");
-    // printf("OpenSSL version (compile-time): %s\n", OPENSSL_VERSION_TEXT);
-    // printf("OpenSSL version (runtime):      %s\n", OpenSSL_version(OPENSSL_VERSION));
-    // printf("OpenSSL built on:               %s\n", OpenSSL_version(OPENSSL_BUILT_ON));
-    // printf("OpenSSL platform:               %s\n", OpenSSL_version(OPENSSL_PLATFORM));
-
 
     /* Read config, populate conf struct. */
     resolve_config_path(argc, argv);
@@ -53,11 +53,68 @@ int main(const int argc, char** argv)
     if ((cmd = strrchr(argv[0], '/')) == NULL) cmd = argv[0];
     else cmd++;
 
+    /* Initialize TLS/SSL. */
+    ssl_ctx = init_ssl_context(conf_data->tls_cert_path, conf_data->tls_key_path);
+    if (ssl_ctx == nullptr) {
+        fprintf(stderr, "failed to initialize SSL context...aborting\n");
+        return 1;
+    }
+
+    /* Validate paths, and open the system logs.
+     * Note there is no need to check status of
+     * validate_path(), as all errors are fatal
+     * and are logged to stderr within the call. */
+    validate_path(conf_data->event_log);
+    validate_path(conf_data->access_log);
+
+    const int event_log_fd =  open(conf_data->event_log, O_WRONLY|O_CREAT|O_APPEND, 0644);
+    if (event_log_fd < 0) {
+        fprintf(stderr, "failed to open event log file: %s\n", strerror(errno));
+        return 1;
+    }
+
+    const int access_log_fd = open(conf_data->access_log, O_WRONLY|O_CREAT|O_APPEND, 0644);
+    if (access_log_fd < 0) {
+        fprintf(stderr, "failed to open access_log file: %s\n", strerror(errno));
+        return 1;
+    }
+
+    /* Call socket(), bind(), and listen() on the http and https ports. */
+    const int http_sock = create_listener(conf_data->http_port);
+    if (http_sock < 0) {
+        fprintf(stderr, "failed to create listener on port %d\n", conf_data->http_port);
+        return 1;
+    }
+
+    const int https_sock = create_listener(conf_data->https_port);
+    if (https_sock < 0) {
+        fprintf(stderr, "failed to create listener on port %d\n", conf_data->https_port);
+        return 1;
+    }
+
     /* Daemonize the process. After this point, standard FDs are gone,
-     * must use logger (or early_fatal) to signal errors. */
+     * must use dprintf to signal errors until logging subsystem is running. */
     daemonize();
 
-    /* Need this to run before creating threads. */
+    /* Write a lockfile; Make sure only one copy of the daemon is running. */
+    char lockfile[PATH_MAX];
+    snprintf(lockfile, PATH_MAX, "%s/%s.pid", conf_data->lock_file_path, cmd);
+
+    if (already_running(lockfile, event_log_fd)) {
+        dprintf(event_log_fd, "server already running\n");
+        return 1;
+    }
+
+    /* Drop privileges, if necessary. */
+    if (getuid() == 0) {
+        const int ret = drop_privileges(conf_data->server_user, conf_data->server_group, event_log_fd);
+        if (ret < 0) {
+            dprintf(event_log_fd, "failed to drop privileges\n");
+            return 1;
+        }
+    }
+
+    /* Best that this runs before creating threads. */
     signal(SIGPIPE, SIG_IGN);
     sigset_t set;
     sigemptyset(&set);
@@ -67,22 +124,13 @@ int main(const int argc, char** argv)
     pthread_sigmask(SIG_BLOCK, &set, nullptr);
 
     /* Initialize logging thread. */
-    logger_t* logger = logger_init();
+    logger_t* logger = logger_init(access_log_fd, event_log_fd);
 
     /* Grab the server pid. */
     logger->server_pid = getpid();
 
     l_info(logger, "server started");
     l_debug(logger, "initialized logger thread");
-
-    /* Write a lockfile; Make sure only one copy of the daemon is running. */
-    char lockfile[PATH_MAX];
-    snprintf(lockfile, PATH_MAX, "%s/%s.pid", conf_data->lock_file_path, cmd);
-
-    if (already_running(lockfile, logger)) {
-        l_error(logger, "server already running");
-        server_shutdown(logger, 1);
-    }
 
     static sig_handler_t sht;
     sht.logger = logger;
@@ -98,7 +146,7 @@ int main(const int argc, char** argv)
 
     /* Initialize worker thread pool, listener threads, and wait room thread. */
     l_debug(logger, "initializing worker thread pool");
-    worker_init(logger, lockfile);
+    worker_init(logger, lockfile, http_sock, https_sock);
 
     /* Park main here. The signal handler thread drives all shutdown. */
     pthread_join(tid, nullptr);
