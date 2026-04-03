@@ -60,6 +60,7 @@ void resolve_path(const char *docroot, const char *uri, char *out_path, size_t o
 }
 
 
+/* Generates an error response. */
 void handle_error(request_ctx_t *ctx)
 {
     resp_add_common_headers(ctx);
@@ -72,8 +73,9 @@ void handle_error(request_ctx_t *ctx)
     /* Generate a simple HTML body based on the status code. */
     char *body = malloc(512);
     const int len = snprintf(body, 512,
-        "<html><head><title>%d %s</title></head>"
-        "<body><h1>%d %s</h1><p>Celeritas Server</p></body></html>",
+        "<!DOCTYPE html>\n<html lang='en'>\n"
+        "<head><title>%d %s</title></head>\n"
+        "<body><h1>%d %s</h1><p>Celeritas Server</p></body>\n</html>\n",
         ctx->status_code, http_status_to_string(ctx->status_code),
         ctx->status_code, http_status_to_string(ctx->status_code));
 
@@ -85,6 +87,7 @@ void handle_error(request_ctx_t *ctx)
 }
 
 
+/* Dispatch based on HTTP method. */
 void handle_static(request_ctx_t *ctx)
 {
     switch (ctx->method) {
@@ -101,6 +104,7 @@ void handle_static(request_ctx_t *ctx)
 }
 
 
+/* Create headers for an OPTIONS response. */
 void handle_options(request_ctx_t *ctx)
 {
     resp_add_common_headers(ctx);
@@ -111,6 +115,7 @@ void handle_options(request_ctx_t *ctx)
 }
 
 
+/* Create headers for a GET or HEAD response. */
 void handle_get_head(request_ctx_t* ctx)
 {
     char local_file[PATH_MAX];
@@ -150,11 +155,14 @@ void handle_get_head(request_ctx_t* ctx)
 }
 
 
+/* Just roughed in - not actually working. */
 void handle_put(const request_ctx_t* ctx) {
     l_debug(ctx->log, "got a put");
 }
 
 
+/* Runs munmap() for memory-mapped file bodies, or free()s
+ * the body for heap-allocated body content. */
 void cleanup_request_resources(const request_ctx_t* ctx)
 {
     if (ctx->response.body_data != NULL) {
