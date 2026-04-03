@@ -98,7 +98,11 @@ int main(const int argc, char** argv)
 
     /* Write a lockfile; Make sure only one copy of the daemon is running. */
     char lockfile[PATH_MAX];
-    snprintf(lockfile, PATH_MAX, "%s/%s.pid", conf_data->lock_file_path, cmd);
+    const ssize_t bytes = snprintf(lockfile, PATH_MAX, "%s/%s.pid", conf_data->lock_file_path, cmd);
+    if (bytes < 0 || bytes >= (int)sizeof(lockfile)) {
+        fprintf(stderr, "lockfile path truncated\n");
+        exit(EXIT_FAILURE);
+    }
 
     if (already_running(lockfile, event_log_fd)) {
         dprintf(event_log_fd, "server already running\n");
