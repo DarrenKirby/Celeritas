@@ -100,7 +100,7 @@ int main(const int argc, char** argv)
     char lockfile[PATH_MAX];
     const ssize_t bytes = snprintf(lockfile, PATH_MAX, "%s/%s.pid", conf_data->lock_file_path, cmd);
     if (bytes < 0 || bytes >= (int)sizeof(lockfile)) {
-        fprintf(stderr, "lockfile path truncated\n");
+        dprintf(event_log_fd, "lockfile path truncated\n");
         exit(EXIT_FAILURE);
     }
 
