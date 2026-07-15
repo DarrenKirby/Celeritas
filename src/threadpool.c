@@ -134,7 +134,7 @@ static int queue_trypop(work_queue_t *q, conn_t *out)
 /* The singleton wait room thread pops connections from the
  * wait queue, registers them with the kernel for monitoring,
  * pushes them back to the work queue when read-ready, and
- * cleans up and closes any connections that have times out. */
+ * cleans up and closes any connections that have timed out. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 void *wait_room_thread(void *arg)
 {
@@ -156,7 +156,7 @@ void *wait_room_thread(void *arg)
     l_debug(log, "initialized keep alive pool at %d", pool_size);
 
     while (!shutting_down) {
-        /* Drain the wait queue, registering each new conn. */
+        /* Drain the wait queue, registering each new conneection. */
         conn_t conn;
         while (queue_trypop(wait_q, &conn) != 1) {
 
