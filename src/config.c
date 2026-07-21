@@ -76,7 +76,7 @@ static const config_mapping_t cfg_map[] = {
 
 static void handle_cfg_error(const logger_t* log, const bool is_first_run, const char* format, ...) {
     char buf[512];
-    va_list args;
+    va_list args = {};
     va_start(args, format);
     vsnprintf(buf, sizeof(buf), format, args);
     va_end(args);
@@ -103,7 +103,7 @@ static char* trim_whitespace(char* str) {
 }
 
 
-bool parse_and_validate_config_file(const logger_t* log, config_data* conf, const bool is_first_run) {
+static bool parse_and_validate_config_file(const logger_t* log, config_data* conf, const bool is_first_run) {
     FILE* fp = fopen(active_config_path, "r");
     if (!fp) {
         handle_cfg_error(log, is_first_run, "Cannot open %s: %s",
@@ -207,7 +207,7 @@ bool parse_and_validate_config_file(const logger_t* log, config_data* conf, cons
 }
 
 
-void load_config_defaults(config_data *cd)
+static void load_config_defaults(config_data *cd)
 {
     const long ncpu = get_ncpu();
 
@@ -235,7 +235,7 @@ void load_config_defaults(config_data *cd)
 }
 
 
-void init_config(void) {
+void init_config() {
     /* Initialize the attribute object. */
     pthread_rwlockattr_t attr;
     if (pthread_rwlockattr_init(&attr) != 0) {
@@ -266,7 +266,7 @@ void init_config(void) {
 }
 
 
-void cleanup_config(void) 
+void cleanup_config()
 {
     pthread_rwlock_destroy(&config_lock);
     if (conf_data) {

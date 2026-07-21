@@ -36,21 +36,18 @@
 
 #define DEFAULT_CONFIG_PATH "/etc/celeritas/celeritas.conf"
 #define LOCK_MODE (S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH)
-#define APPNAME "celeritas"
-#define APPVERSION "0.10.2"
+#define APP_NAME "celeritas"
+#define APP_VERSION "0.10.2"
 
 
-char active_config_path[PATH_MAX];
-
-
-static void show_help(void) {
+static void show_help() {
     printf("Usage: %s [OPTION] | [-c | --config-file=PATH] \n\n\
 Options:\n\
     -c, --config-file\tpath to the celeritas configuration file\n\
     -v, --verbose\tbe more chatty on startup (does not affect logging)\n\
     -h, --help\t\tdisplay this help and exit\n\
     -V, --version\tdisplay version information and exit\n\n\
-Report bugs to <darren@dragonbyte.ca>\n", APPNAME);
+Report bugs to <darren@dragonbyte.ca>\n", APP_NAME);
 }
 
 
@@ -75,7 +72,7 @@ void resolve_config_path(int argc, char *argv[])
     while ((opt = getopt_long(argc, argv, "Vhvc:", long_opts, nullptr)) != -1) {
         switch(opt) {
             case 'V':
-                printf("%s version %s\n", APPNAME, APPVERSION);
+                printf("%s version %s\n", APP_NAME, APP_VERSION);
                 printf("  compiled on %s at %s\n", __DATE__, __TIME__);
                 exit(EXIT_SUCCESS);
             case 'h':
@@ -85,7 +82,7 @@ void resolve_config_path(int argc, char *argv[])
                 cli_path = optarg;
                 break;
             case 'v':
-                printf("\n%s version %s: the 'caffeinated' http server\n", APPNAME, APPVERSION);
+                printf("\n%s version %s: the 'caffeinated' http server\n", APP_NAME, APP_VERSION);
                 printf("  report bugs to: <darren@dragonbyte.ca>\n");
                 printf("           or at: https://github.com/DarrenKirby/Celeritas\n");
                 printf("  compiled on %s at %s\n\n", __DATE__, __TIME__);
@@ -204,7 +201,7 @@ int drop_privileges(const char *username, const char *groupname, const int fd)
 
 /* Perform a double-fork to drop the controlling terminal
  * and daemonize the server. */
-void daemonize(void)
+void daemonize()
 {
     /* Clear file creation mask. */
     umask(0);

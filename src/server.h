@@ -26,13 +26,14 @@
 #include <stdnoreturn.h>
 
 
+char active_config_path[PATH_MAX];
+
 typedef struct {
     logger_t *logger;
     sigset_t *sig_mask;
 } sig_handler_t;
 
-
-void daemonize(void);
+void daemonize();
 int already_running(const char* lockfile_name, int elfd);
 int drop_privileges(const char *username, const char *groupname, int fd);
 noreturn void server_shutdown(logger_t* log, int status);

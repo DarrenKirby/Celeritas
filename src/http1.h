@@ -23,7 +23,7 @@
 
 #include <stdio.h>
 
-typedef struct request_ctx_t request_ctx_t;
+typedef request_ctx_t request_ctx_t;
 
 
 int read_http_headers(request_ctx_t *ctx);

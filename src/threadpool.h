@@ -21,7 +21,7 @@
 #ifndef CELERITAS_THREADPOOL_H
 #define CELERITAS_THREADPOOL_H
 
-#include "logger.h"
+#include "types.h"
 
 #include <pthread.h>
 

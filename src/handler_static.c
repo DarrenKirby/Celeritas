@@ -25,6 +25,7 @@
 #include "http_common.h"
 #include "config.h"
 #include "threadpool.h"
+#include "logger.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -34,7 +35,7 @@
 
 
 /* Resolves a URI to a physical path on disk. */
-void resolve_path(const char *docroot, const char *uri, char *out_path, size_t out_len) {
+static void resolve_path(const char *docroot, const char *uri, char *out_path, size_t out_len) {
     /* Ensure exactly one slash between docroot and uri. */
     const size_t root_len = strlen(docroot);
 

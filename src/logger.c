@@ -31,7 +31,7 @@
 #define BATCH_SIZE 32
 
 
-logger_t logger;
+static logger_t logger;
 
 /* Adds a priority prefix to event_log entries. */
 char* l_priority(const int priority)
@@ -48,7 +48,7 @@ char* l_priority(const int priority)
 
 /* Returns a string with the current time
  * formatted as "2026-04-22 15:36:22 PDT". */
-char* l_format_datetime(void)
+char* l_format_datetime()
 {
     /* __thread (or _Thread_local in C11) gives every thread its own buffer. */
     static __thread char t_buf[32];
@@ -66,7 +66,7 @@ char* l_format_datetime(void)
 
 
 /* Returns a unique thread id value (for debugging threads). */
-unsigned long get_tid(void)
+unsigned long get_tid()
 {
     return (unsigned long)pthread_self();
 }
@@ -89,7 +89,7 @@ void log_write(const logger_t* log, const log_target_t target, const char *fmt, 
     log_entry_t entry;
 
     /* Format entirely before taking the lock. */
-    va_list args;
+    va_list args = {};
     va_start(args, fmt);
     entry.len = vsnprintf(entry.line, LOG_LINE_MAX, fmt, args);
     entry.target = target;
@@ -132,7 +132,7 @@ void log_write(const logger_t* log, const log_target_t target, const char *fmt, 
 /* An endless loop wherein the logging thread pops messages from the
  * log ring buffer, and collects them for vectorized I/O. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
-void *logger_thread(void *arg)
+static void *logger_thread(void *arg)
 {
     const logger_t *log = arg;
 

@@ -21,8 +21,10 @@
 #ifndef CELERITAS_VALIDATOR_H
 #define CELERITAS_VALIDATOR_H
 
-typedef struct request_ctx_t request_ctx_t;
+#include "handler_static.h"
 
+
+typedef request_ctx_t request_ctx_t;
 
 void validate_request(request_ctx_t *ctx) ;
 

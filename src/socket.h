@@ -29,7 +29,7 @@ int create_listener(uint16_t port);
 int accept_connection(const logger_t *log, int listen_fd, int is_tls, conn_t* conn);
 void demux_protocol(conn_t* conn);
 void set_socket_timeout(int fd, int seconds);
-void close_connection(const conn_t* conn);
+void close_connection(const conn_t* conn, const logger_t *log);
 int perform_tls_handshake(const conn_t *conn);
 
 #endif //CELERITAS_SOCKET_H

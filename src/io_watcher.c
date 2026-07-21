@@ -26,7 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <math.h>
 
 
 #ifndef __linux__
@@ -82,7 +81,7 @@ int io_watcher_add(const io_watcher_t *w, const int fd, void *userdata) {
     /* Initialize kevent structure. */
     EV_SET(&event, fd, EVFILT_READ, EV_ADD|EV_ONESHOT, 0, 0, userdata);
     /* Send the event to kqueue. */
-    if (kevent(w->fd, &event, 1, NULL, 0, NULL) != 0) {
+    if (kevent(w->fd, &event, 1, nullptr, 0, nullptr) != 0) {
         return -1;
     }
 #else
@@ -112,7 +111,7 @@ int io_watcher_remove(const io_watcher_t *w, const int fd)
 #ifndef __linux__
     struct kevent event;
     EV_SET(&event, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    if (kevent(w->fd, &event, 1, NULL, 0, NULL) != 0) {
+    if (kevent(w->fd, &event, 1, nullptr, 0, nullptr) != 0) {
         return -1;
     }
 #else
@@ -135,7 +134,7 @@ int io_watcher_wait(const io_watcher_t *w, io_event_t *events, const int max_eve
     timeout.tv_sec = timeout_ms / 1000;
     timeout.tv_nsec = (timeout_ms % 1000) * 1000000L;
 
-    num_events = kevent(w->fd, NULL, 0, ev_list, max_events, &timeout);
+    num_events = kevent(w->fd, nullptr, 0, ev_list, max_events, &timeout);
 
     if (num_events < 0) {
         return -1;
@@ -214,7 +213,7 @@ int pool_nearest_timeout_ms(const conn_pool_t *pool)
 {
     if (pool->count == 0) return -1;
 
-    const time_t now = time(NULL);
+    const time_t now = time(nullptr);
     time_t min_expiry = pool->items[0].keepalive_deadline;
 
     for (size_t i = 1; i < pool->count; i++) {
@@ -245,16 +244,16 @@ int pool_remove_by_fd(conn_pool_t *pool, const int fd, conn_t *out_conn)
 
 
 /* Sweeps for expired connections, unregisters them, and closes them. */
-void pool_sweep_expired(conn_pool_t *pool, const io_watcher_t *watcher)
+void pool_sweep_expired(conn_pool_t *pool, const io_watcher_t *watcher, logger_t log)
 {
-    const time_t now = time(NULL);
+    const time_t now = time(nullptr);
     size_t i = 0;
 
     while (i < pool->count) {
         if (pool->items[i].keepalive_deadline <= now) {
             io_watcher_remove(watcher, pool->items[i].fd);
 
-            close_connection(&pool->items[i]);
+            close_connection(&pool->items[i], &log);
 
             pool->items[i] = pool->items[pool->count - 1];
             pool->count--;

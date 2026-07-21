@@ -224,8 +224,10 @@ void set_socket_timeout(const int fd, const int seconds)
 
 
 /* Closes the socket and thus closes the passed connection. */
-void close_connection(const conn_t* conn)
+void close_connection(const conn_t* conn, const logger_t *log)
 {
+    (void)log;
+    //l_debug(log, "Closing socket fd: %d", conn->fd);
     close(conn->fd);
     if (conn->ssl) {
         SSL_shutdown(conn->ssl);

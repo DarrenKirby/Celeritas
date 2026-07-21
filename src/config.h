@@ -59,8 +59,8 @@ struct config_data {
 };
 
 
-void init_config(void);
-void cleanup_config(void);
+void init_config();
+void cleanup_config();
 void reload_configuration(const logger_t* log);
 
 #endif //CELERITAS_CONFIG_H

@@ -42,7 +42,7 @@ static const mime_entry_t mime_table[] = {
     {".ico",  "image/x-icon"},
     {".svg",  "image/svg+xml"},
     {".woff2", "font/woff2"},
-    {NULL, NULL}
+    {nullptr, nullptr}
 };
 
 

@@ -50,7 +50,7 @@ uint32_t next_power_of_2(uint32_t v)
 
 
 /* Returns the number of CPUs/cores on the currently running system. */
-long get_ncpu(void)
+long get_ncpu()
 {
     long n_cpu;
     if ((n_cpu = sysconf(_SC_NPROCESSORS_CONF)) == -1) {
@@ -62,7 +62,7 @@ long get_ncpu(void)
 
 
 /* Returns a monotonic time value in milliseconds. */
-uint64_t get_now_ms(void)
+uint64_t get_now_ms()
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -71,7 +71,7 @@ uint64_t get_now_ms(void)
 
 
 /* Returns a monotonic time value in microseconds. */
-uint64_t get_now_us(void)
+uint64_t get_now_us()
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);

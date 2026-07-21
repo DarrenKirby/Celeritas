@@ -249,7 +249,7 @@ ssize_t conn_write(const conn_t *conn, const void *buf, const size_t count)
 
 
 /* Build and send the HTTP response. */
-void send_response(request_ctx_t *ctx)
+int send_response(request_ctx_t *ctx)
 {
     /* Build the header string into the buffer. */
     const size_t header_len = resp_build_response(ctx, ctx->response.header_buffer, HEADER_BUFFER_SIZE);
@@ -259,7 +259,7 @@ void send_response(request_ctx_t *ctx)
     if (res < 0) {
         /* write() call failed - not much we can do but log it. */
         l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
-        return;
+        return -1;
     }
     if (res < (int)header_len) {
         /* Write was truncated. */
@@ -273,13 +273,14 @@ void send_response(request_ctx_t *ctx)
         if (res < 0) {
             /* write() call failed - not much we can do but log it. */
             l_error(ctx->log, "write() to socket failed: %s", strerror(errno));
-            return;
+            return -1;
         }
         if (res < (int)header_len) {
             /* Write was truncated. */
             l_warn(ctx->log, "write() body to socket was truncated!");
         }
     }
+    return 0;
 }
 
 

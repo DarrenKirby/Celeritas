@@ -21,4 +21,8 @@
 #ifndef CELERITAS_MAIN_H
 #define CELERITAS_MAIN_H
 
+#include <openssl/types.h>
+
+SSL_CTX *ssl_ctx;
+
 #endif //CELERITAS_MAIN_H

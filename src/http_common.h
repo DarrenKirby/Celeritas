@@ -29,7 +29,7 @@ ssize_t conn_write(const conn_t *conn, const void *buf, size_t count);
 const char* http_status_to_string(int status_code);
 int process_ingress(request_ctx_t *ctx);
 void route_request(request_ctx_t *ctx);
-void send_response(request_ctx_t *ctx);
+int send_response(request_ctx_t *ctx);
 bool should_keep_alive(const request_ctx_t *ctx);
 
 

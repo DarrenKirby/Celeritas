@@ -17,7 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
+#include "main.h"
 #include "config.h"
 #include "server.h"
 #include "threadpool.h"
@@ -37,7 +37,6 @@
 config_data *conf_data;
 pthread_rwlock_t config_lock;
 _Atomic int shutting_down = 0;
-SSL_CTX *ssl_ctx;
 
 
 int main(const int argc, char** argv)

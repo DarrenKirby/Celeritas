@@ -21,10 +21,8 @@
 #ifndef CELERITAS_RESPONSE_H
 #define CELERITAS_RESPONSE_H
 
-#include <stdio.h>
 
-typedef struct request_ctx_t request_ctx_t;
-
+typedef request_ctx_t request_ctx_t;
 
 void resp_set_status(request_ctx_t* ctx, int status);
 void resp_add_header(request_ctx_t* ctx, const char* name, const char* value);

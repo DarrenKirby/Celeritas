@@ -24,29 +24,6 @@
 #include "types.h"
 
 
-// typedef struct io_watcher_t io_watcher_t;
-// typedef struct io_event_t io_event_t;
-// typedef struct conn_pool_t conn_pool_t;
-
-
-// struct io_watcher_t {
-//     int fd;
-// };
-//
-//
-// struct io_event_t {
-//     void *userdata;
-//     int   is_error;
-// } ;
-//
-//
-// struct conn_pool_t {
-//     conn_t *items;
-//     size_t count;    // Using count for unsigned length
-//     size_t capacity; // The user-configured max
-// };
-
-
 io_watcher_t *io_watcher_create(logger_t *log);
 void io_watcher_destroy(io_watcher_t *w);
 
@@ -65,6 +42,6 @@ int pool_add(conn_pool_t *pool, conn_t new_conn);
 void pool_remove_at(conn_pool_t *pool, size_t index);
 int pool_nearest_timeout_ms(const conn_pool_t *pool);
 int pool_remove_by_fd(conn_pool_t *pool, int fd, conn_t *out_conn);
-void pool_sweep_expired(conn_pool_t *pool, const io_watcher_t *watcher);
+void pool_sweep_expired(conn_pool_t *pool, const io_watcher_t *watcher, logger_t log);
 
 #endif //CELERITAS_IO_WATCHER_H

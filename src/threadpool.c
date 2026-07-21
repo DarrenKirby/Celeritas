@@ -136,7 +136,7 @@ static int queue_trypop(work_queue_t *q, conn_t *out)
  * pushes them back to the work queue when read-ready, and
  * cleans up and closes any connections that have timed out. */
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
-void *wait_room_thread(void *arg)
+static void *wait_room_thread(void *arg)
 {
     const worker_args_t *wr = arg;
     logger_t *log = wr->logger;
@@ -156,7 +156,7 @@ void *wait_room_thread(void *arg)
     l_debug(log, "initialized keep alive pool at %d", pool_size);
 
     while (!shutting_down) {
-        /* Drain the wait queue, registering each new conneection. */
+        /* Drain the wait queue, registering each new connection. */
         conn_t conn;
         while (queue_trypop(wait_q, &conn) != 1) {
 
@@ -169,11 +169,11 @@ void *wait_room_thread(void *arg)
                     l_error(log, "io_watcher_add failed: %s", strerror(errno));
                     /* Cleanup from pool if kernel registration fails. */
                     pool_remove_by_fd(&pool, conn.fd, nullptr);
-                    close_connection(&conn);
+                    close_connection(&conn, log);
                 }
             } else {
                 l_error(log, "Wait room pool is full!");
-                close_connection(&conn);
+                close_connection(&conn, log);
             }
         }
 
@@ -202,7 +202,7 @@ void *wait_room_thread(void *arg)
             if (pool_remove_by_fd(&pool, ready_fd, &active_conn)) {
 
                 if (events[i].is_error) {
-                    close_connection(&active_conn);
+                    close_connection(&active_conn, log);
                 } else {
                     queue_push(work_q, &active_conn);
                 }
@@ -210,7 +210,7 @@ void *wait_room_thread(void *arg)
         }
 
         /* Scan for timed-out connections and close them. */
-        pool_sweep_expired(&pool, watcher);
+        pool_sweep_expired(&pool, watcher, *log);
     }
     io_watcher_destroy(watcher);
     free(pool.items);
@@ -221,8 +221,7 @@ void *wait_room_thread(void *arg)
 /* The worker threads pop jobs from the queue, and handle each
  * request/response unit end to end. If the connection is keep alive,
  * it will be pushed to the wait queue for monitoring. */
-// ReSharper disable once CppParameterMayBeConstPtrOrRef
-void *worker_thread(void *arg) {
+static void *worker_thread(void *arg) {
     const worker_args_t *wa = arg;
     conn_t conn;
 
@@ -250,8 +249,7 @@ void *worker_thread(void *arg) {
                 if (result != 0) {
                     /* Not much to do but log the error and drop the connection. */
                     l_error(ctx->log, "perform_tls_handshake failed");
-                    close_connection(&conn);
-                    continue;
+                    goto cleanup;
                 }
             }
         }
@@ -260,13 +258,12 @@ void *worker_thread(void *arg) {
         if (process_ingress(ctx) != 0) {
             /* If parsing headers failed, try to send error response. */
             if (ctx->status_code > 0) {
+                /* Whether or not the write failed, we're
+                 * bailing on the connection. */
                 send_response(ctx);
                 log_access(ctx);
-            /* No error code: client closed the connection. */
-            } else {
-                close_connection(&conn);
             }
-            goto request_finish;
+            goto cleanup;
         }
 
         /* Validate and route request. */
@@ -275,27 +272,30 @@ void *worker_thread(void *arg) {
         ctx->handler(ctx);      /* Execute the handler (Static/Dynamic/Error). */
 
         /* Send response and log access. */
-        send_response(ctx);
+        const int es = send_response(ctx);
         log_access(ctx);
-
-        /* Persistence check. */
-        if (!should_keep_alive(ctx) || shutting_down) {
-            close_connection(&conn);
-            if (shutting_down) {
-                break;
-            }
-        } else {
-            /* Set the socket timeout for the next request. */
+        if (es == 0 && should_keep_alive(ctx)) {
+            /* Set the socket timeout for the next request,
+             * and push connection to wait queue. */
             conn.keepalive_deadline = time(nullptr) + timeout;
             queue_push(wa->wait_queue, &conn);
+            continue;
         }
 
-        request_finish:
-            //debug_print_request(ctx);
-            //debug_print_response(ctx);
-            /* Run munmap(), or free heap allocated buffer. */
-            cleanup_request_resources(ctx);
-            free(ctx);
+        /* Check if we're shutting down. */
+        if (shutting_down) {
+            close_connection(&conn, ctx->log);
+            break;
+        }
+
+    cleanup:
+        //debug_print_request(ctx);
+        //debug_print_response(ctx);
+        /* Close the socket, then run munmap(),
+         * or free heap allocated buffer. */
+        close_connection(&conn, ctx->log);
+        cleanup_request_resources(ctx);
+        free(ctx);
     }
     return NULL;
 }
@@ -303,12 +303,11 @@ void *worker_thread(void *arg) {
 
 /* The listener threads just listen on the HTTP and HTTPS ports,
  * accept connections, and push them to the work queue. */
-// ReSharper disable once CppParameterMayBeConstPtrOrRef
-void *listener_thread(void *arg)
+static void *listener_thread(void *arg)
 {
     const listener_args_t *la = arg;
     work_queue_t *q = la->queue;
-    logger_t *log = la->logger;
+    const logger_t *log = la->logger;
     const int listen_fd = la->sock;
 
     while (!shutting_down) {

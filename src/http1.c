@@ -21,11 +21,11 @@
 #include "types.h"
 #include "logger.h"
 #include "http_common.h"
+#include "http1.h"
 
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
-#include <sys/socket.h>
 
 #define MAX_HEADER_SIZE 8192
 

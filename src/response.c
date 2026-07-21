@@ -22,6 +22,7 @@
 #include "util.h"
 #include "config.h"
 #include "threadpool.h"
+#include "response.h"
 
 #include <string.h>
 #include <unistd.h>
@@ -68,16 +69,12 @@ void resp_add_common_headers(request_ctx_t* ctx)
  * and builds a response header block into a buffer. */
 size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining)
 {
-    /* NOTE: Overflow code commented out, as currently,
-     * we have full control over length and content of
-     * response headers, they will not overflow a 8192 byte buffer. */
     char *p = buf;
     size_t total_size = 0;
 
     /* Status line. */
     size_t n = snprintf(p, remaining, "HTTP/1.1 %d %s\r\n",
                      ctx->status_code, http_status_to_string(ctx->status_code));
-    //if (n >= remaining) goto overflow; // Check for truncation
     p += n;
     total_size += n;
     remaining -= n;
@@ -86,7 +83,6 @@ size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining)
     for (int i = 0; i < ctx->response.header_count; i++) {
         n = snprintf(p, remaining, "%s: %s\r\n",
                      ctx->response.headers[i].key, ctx->response.headers[i].value);
-        //if (n >= remaining) goto overflow;
         p += n;
         total_size += n;
         remaining -= n;
@@ -94,7 +90,6 @@ size_t resp_build_response(request_ctx_t* ctx, char* buf, size_t remaining)
 
     /* The "Great Divider". */
     n = snprintf(p, remaining, "\r\n");
-    //\\if (n >= remaining) goto overflow;
     total_size += n;
     buf[total_size] = '\0';
     return total_size;
